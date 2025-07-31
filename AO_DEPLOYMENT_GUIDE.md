@@ -95,7 +95,7 @@ NEXT_PUBLIC_PREMIUM_ACCESS_PROCESS=your-premium-access-process-id-here
 NEXT_PUBLIC_ACCESS_CONTROL_PROCESS=your-access-control-process-id-here
 
 # Token process (already deployed)
-NEXT_PUBLIC_TOKEN_PROCESS=xU9zFkq3X2ZQ6olwNVvr1vUWIjc3kXTWr7xKQD6dh10
+NEXT_PUBLIC_TOKEN_PROCESS=your_token_process_id
 
 # Platform wallet (already configured)
 NEXT_PUBLIC_PLATFORM_WALLET=WJw8VdUteXegMDMEUmpT0ly39F4Uobn_KyX2fFDs8eg

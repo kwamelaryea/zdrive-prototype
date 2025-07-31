@@ -100,7 +100,7 @@ NEXT_PUBLIC_CREATOR_NFT_PROCESS=your-creator-nft-process-id
 NEXT_PUBLIC_BASIC_ACCESS_PROCESS=your-basic-access-process-id
 NEXT_PUBLIC_PREMIUM_ACCESS_PROCESS=your-premium-access-process-id
 NEXT_PUBLIC_ACCESS_CONTROL_PROCESS=your-access-control-process-id
-NEXT_PUBLIC_TOKEN_PROCESS=xU9zFkq3X2ZQ6olwNVvr1vUWIjc3kXTWr7xKQD6dh10
+NEXT_PUBLIC_TOKEN_PROCESS=your_token_process_id
   `);
 }
 

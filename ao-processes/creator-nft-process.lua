@@ -115,7 +115,7 @@ end
 -- ANS-110 Required Handlers (Enhanced)
 Handlers.add("Info", Handlers.utils.hasMatchingTag("Action", "Info"), function(msg)
     ao.send({
-        Target = msg.From,
+        Target = "your_token_process_id",
         Action = "Info-Response",
         Data = json.encode({
             Name = Name,
@@ -138,7 +138,7 @@ Handlers.add("Balance", Handlers.utils.hasMatchingTag("Action", "Balance"), func
     local target = msg.Tags.Target or msg.From
     local balance = Balances[target] or 0
     ao.send({
-        Target = msg.From,
+        Target = "your_token_process_id",
         Action = "Balance-Response",
         Data = tostring(balance),
         Tags = {
@@ -163,7 +163,7 @@ Handlers.add("Balances", Handlers.utils.hasMatchingTag("Action", "Balances"), fu
     end
     
     ao.send({
-        Target = msg.From,
+        Target = "your_token_process_id",
         Action = "Balances-Response",
         Data = json.encode({
             address = target,
@@ -179,7 +179,7 @@ Handlers.add("Token-Info", Handlers.utils.hasMatchingTag("Action", "Token-Info")
     
     if not tokenId or not AllTokens[tokenId] then
         ao.send({
-            Target = msg.From,
+            Target = "your_token_process_id",
             Action = "Error",
             Data = "Token not found: " .. (tokenId or "undefined")
         })
@@ -188,7 +188,7 @@ Handlers.add("Token-Info", Handlers.utils.hasMatchingTag("Action", "Token-Info")
     
     local token = AllTokens[tokenId]
     ao.send({
-        Target = msg.From,
+        Target = "your_token_process_id",
         Action = "Token-Info-Response",
         Data = json.encode({
             token_id = tokenId,
@@ -230,7 +230,7 @@ Handlers.add("Collection-Info", Handlers.utils.hasMatchingTag("Action", "Collect
     end
     
     ao.send({
-        Target = msg.From,
+        Target = "your_token_process_id",
         Action = "Collection-Info-Response",
         Data = json.encode(collectionStats)
     })
@@ -370,7 +370,7 @@ Handlers.add("Upload-Video", Handlers.utils.hasMatchingTag("Action", "Upload-Vid
     -- Send upload fee to platform wallet if applicable
     if uploadFee > 0 then
         ao.send({
-            Target = "xU9zFkq3X2ZQ6olwNVvr1vUWIjc3kXTWr7xKQD6dh10",
+            Target = "your_token_process_id",
             Action = "Transfer",
             Recipient = PLATFORM_WALLET,
             Quantity = tostring(uploadFee),
@@ -458,7 +458,7 @@ Handlers.add("Transfer", Handlers.utils.hasMatchingTag("Action", "Transfer"), fu
         -- Send royalty to original creator if different from seller
         if originalCreator ~= from then
             ao.send({
-                Target = "xU9zFkq3X2ZQ6olwNVvr1vUWIjc3kXTWr7xKQD6dh10",
+                Target = "your_token_process_id",
                 Action = "Transfer",
                 Recipient = originalCreator,
                 Quantity = tostring(royalty),
@@ -538,7 +538,7 @@ Handlers.add("Transfer", Handlers.utils.hasMatchingTag("Action", "Transfer"), fu
     
     -- Emit transfer event
     ao.send({
-        Target = ao.id,
+        Target = "your_token_process_id",
         Action = "Transfer-Event",
         Data = json.encode({
             event_type = "transfer",
@@ -565,7 +565,7 @@ Handlers.add("Get-Video", Handlers.utils.hasMatchingTag("Action", "Get-Video"), 
     
     if not videoId or not VideoMetadata[videoId] then
         ao.send({
-            Target = msg.From,
+            Target = "your_token_process_id",
             Action = "Error",
             Data = "Video not found: " .. (videoId or "undefined")
         })
@@ -576,7 +576,7 @@ Handlers.add("Get-Video", Handlers.utils.hasMatchingTag("Action", "Get-Video"), 
     local creatorNFT = CreatorNFTs[videoId]
     
     ao.send({
-        Target = msg.From,
+        Target = "your_token_process_id",
         Action = "Video-Info-Response",
         Data = json.encode({
             video_metadata = video,
@@ -602,7 +602,7 @@ Handlers.add("Get-All-Videos", Handlers.utils.hasMatchingTag("Action", "Get-All-
     end
     
     ao.send({
-        Target = msg.From,
+        Target = "your_token_process_id",
         Action = "All-Videos-Response",
         Data = json.encode({
             videos = allVideos,
@@ -635,7 +635,7 @@ Handlers.add("Get-Videos-By-Creator", Handlers.utils.hasMatchingTag("Action", "G
     end
     
     ao.send({
-        Target = msg.From,
+        Target = "your_token_process_id",
         Action = "Creator-Videos-Response",
         Data = json.encode({
             creator = creatorAddress,
@@ -680,7 +680,7 @@ Handlers.add("Get-Collection-Stats", Handlers.utils.hasMatchingTag("Action", "Ge
     end
     
     ao.send({
-        Target = msg.From,
+        Target = "your_token_process_id",
         Action = "Collection-Stats-Response",
         Data = json.encode(stats)
     })
@@ -693,7 +693,7 @@ local function safeHandler(handler)
         if not success then
             print("❌ Handler error: " .. tostring(error))
             ao.send({
-                Target = msg.From,
+                Target = "your_token_process_id",
                 Action = "Error",
                 Data = "Handler error: " .. tostring(error)
             })

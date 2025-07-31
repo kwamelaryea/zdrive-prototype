@@ -155,7 +155,7 @@ const AO_PROCESSES = {
   BASIC_ACCESS: 'VxGBhfTqCQwrcxovPPpY6fdHqooHh8xITuI5ry3lTJs',
   PREMIUM_ACCESS: 'IXOzHMQZoBIyq_mtcoHG9mfhusxSwYu932wWB6L6RjE',
   ACCESS_CONTROL: 'X-Lbejt0NVMaYtknT9FW9FhXNeH8-pu0t7Y2ej0iawI',
-  TOKEN: 'xU9zFkq3X2ZQ6olwNVvr1vUWIjc3kXTWr7xKQD6dh10'
+  TOKEN: 'your_token_process_id'
 };
 ```
 

@@ -38,7 +38,7 @@ TransferHistory = {} -- token_id -> transfer_record[]
 
 -- External Process IDs (to be set)
 CREATOR_NFT_PROCESS = "Lk-5IzUn46w7d0BliSvR9Yo4jazeEZ1kxt54F2SlpPc"  -- Replace with actual Creator NFT process ID after deploying it
-TOKEN_PROCESS = "xU9zFkq3X2ZQ6olwNVvr1vUWIjc3kXTWr7xKQD6dh10"  -- AO token process ID on mainnet
+TOKEN_PROCESS = "your_token_process_id"  -- AO token process ID on mainnet
 
 -- Utility Functions
 local function generateTokenId(videoId)

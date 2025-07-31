@@ -54,7 +54,7 @@ export const AO_PROCESSES = {
   BASIC_ACCESS: process.env.NEXT_PUBLIC_BASIC_ACCESS_PROCESS || 'VxGBhfTqCQwrcxovPPpY6fdHqooHh8xITuI5ry3lTJs',
   PREMIUM_ACCESS: process.env.NEXT_PUBLIC_PREMIUM_ACCESS_PROCESS || 'IXOzHMQZoBIyq_mtcoHG9mfhusxSwYu932wWB6L6RjE',
   ACCESS_CONTROL: process.env.NEXT_PUBLIC_ACCESS_CONTROL_PROCESS || 'X-Lbejt0NVMaYtknT9FW9FhXNeH8-pu0t7Y2ej0iawI',
-  TOKEN: process.env.NEXT_PUBLIC_TOKEN_PROCESS || 'xU9zFkq3X2ZQ6olwNVvr1vUWIjc3kXTWr7xKQD6dh10',
+  TOKEN: process.env.NEXT_PUBLIC_TOKEN_PROCESS || 'your_token_process_id',
 };
 
 // Platform Configuration

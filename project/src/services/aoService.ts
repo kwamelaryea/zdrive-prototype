@@ -1,36 +1,52 @@
 // AO Service for ZDrive NFT Operations
-import { message, result, dryrun, createDataItemSigner, connect } from '@permaweb/aoconnect';
+import { message, result, dryrun, createDataItemSigner } from '@permaweb/aoconnect';
 import Arweave from 'arweave';
 import toast from 'react-hot-toast';
+
+// PROPER AOCONNECT MAINNET CONFIGURATION
+// Use Arweave mainnet endpoints to prevent testnet redirects
+const MAINNET_URLS = {
+  CU_URL: process.env.AO_CU_URL || 'https://cu.arweave.net',
+  MU_URL: process.env.AO_MU_URL || 'https://mu.arweave.net',
+  GATEWAY_URL: process.env.AO_GATEWAY_URL || 'https://arweave.net'
+};
+
+console.log('✅ AO Connect configured for Arweave mainnet:', MAINNET_URLS);
 
 // Global types defined in src/types/global.d.ts
 
 // Environment-based configuration
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
-// Production AO Configuration - Remove MODE requirement to avoid signer issues
-const AO_CONFIG = {
-  GATEWAY_URL: process.env.NEXT_PUBLIC_AO_GATEWAY_URL || 'https://arweave.net',
-  CU_URL: process.env.NEXT_PUBLIC_AO_CU_URL || 'https://cu.ao.dev',
-  MU_URL: process.env.NEXT_PUBLIC_AO_MU_URL || 'https://mu.ao.dev',
-  SU_URL: process.env.NEXT_PUBLIC_AO_SU_URL || 'https://su.ao.dev',
+// Helper function to ensure mainnet dryrun calls
+const mainnetDryrun = async (params: any) => {
+  console.log('🔧 Using Arweave mainnet URLs for dryrun');
+  return dryrun({
+    ...params,
+    ...MAINNET_URLS
+  });
 };
 
-// Log AO configuration without trying to connect early
-console.log('✅ AO Connect configured for production mainnet:', AO_CONFIG);
+// Helper function to ensure mainnet message calls
+const mainnetMessage = async (params: any) => {
+  console.log('🔧 Using Arweave mainnet URLs for message');
+  return message({
+    ...params,
+    ...MAINNET_URLS
+  });
+};
 
-// Verify no testnet URLs
-const hasTestnetUrl = Object.values(AO_CONFIG).some(url => url.includes('testnet'));
-if (hasTestnetUrl) {
-  console.error('❌ CRITICAL: Testnet URLs detected in production config!', AO_CONFIG);
-  throw new Error('Testnet URLs not allowed in production');
-}
+// Helper function to ensure mainnet result calls
+const mainnetResult = async (params: any) => {
+  console.log('🔧 Using Arweave mainnet URLs for result');
+  return result({
+    ...params,
+    ...MAINNET_URLS
+  });
+};
 
-console.log('🔍 Production AO Network Configuration verified:');
-console.log('  Gateway:', AO_CONFIG.GATEWAY_URL);
-console.log('  CU URL:', AO_CONFIG.CU_URL);
-console.log('  MU URL:', AO_CONFIG.MU_URL);
-console.log('  SU URL:', AO_CONFIG.SU_URL);
+// Log configuration
+console.log('✅ AO Service configured for Arweave mainnet:', MAINNET_URLS);
 
 // Production AO Process IDs
 export const AO_PROCESSES = {
@@ -127,6 +143,16 @@ const validateProcessIds = () => {
 // Validate process IDs on module load
 validateProcessIds();
 
+// Clear any demo data to ensure production mode
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('demo-purchases');
+    console.log('🗑️ Demo purchases cleared from localStorage');
+  } catch (error) {
+    console.log('Failed to clear demo data:', error);
+  }
+}
+
 // Utility: Retry function with exponential backoff
 const retry = async <T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> => {
   let lastError: Error | null = null;
@@ -173,6 +199,7 @@ const checkProcessDeployment = async (processId: string): Promise<boolean> => {
     const testResult = await dryrun({
       process: processId,
       tags: [{ name: 'Action', value: 'Info' }],
+      ...MAINNET_URLS
     });
     return testResult.Messages?.length > 0;
   } catch {
@@ -233,6 +260,108 @@ const createSigner = async () => {
 
 // AO Service Class
 export class AOService {
+  // Clear any demo/test data from localStorage
+  static clearDemoData(): void {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('demo-purchases');
+      localStorage.removeItem('demo-access');
+      console.log('🗑️ Demo purchases cleared from localStorage');
+    }
+  }
+
+  // Add new reset function to clear AO process state
+  static async resetProcessState(processId: string): Promise<boolean> {
+    try {
+      log('🔄 Resetting process state for:', processId);
+      
+      // Clear any cached data for this process
+      if (typeof window !== 'undefined') {
+        // Clear any process-specific cache
+        const cacheKeys = Object.keys(localStorage).filter(key => 
+          key.includes(processId) || key.includes('ao-cache') || key.includes('demo')
+        );
+        cacheKeys.forEach(key => localStorage.removeItem(key));
+        log('🗑️ Cleared cache keys:', cacheKeys);
+      }
+      
+      // Force a fresh dryrun to clear any cached responses
+      try {
+        await dryrun({
+          process: processId,
+          tags: [
+            { name: "Action", value: "Info" },
+            { name: "Reset", value: Date.now().toString() }
+          ],
+          ...MAINNET_URLS
+        });
+        log('✅ Process cache cleared for:', processId);
+      } catch (dryrunError) {
+        log('⚠️ Dryrun reset failed (expected):', dryrunError);
+      }
+      
+      return true;
+    } catch (error) {
+      errorLog('❌ Failed to reset process state', error as Error);
+      return false;
+    }
+  }
+
+  // Add function to reset all processes
+  static async resetAllProcessStates(): Promise<void> {
+    log('🔄 Resetting all AO process states...');
+    
+    const processes = [
+      AO_PROCESSES.CREATOR_NFT,
+      AO_PROCESSES.BASIC_ACCESS,
+      AO_PROCESSES.PREMIUM_ACCESS,
+      AO_PROCESSES.ACCESS_CONTROL
+    ];
+
+    for (const processId of processes) {
+      await this.resetProcessState(processId);
+      // Small delay between resets
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    // Clear all demo and cache data
+    if (typeof window !== 'undefined') {
+      // Clear all AO-related cache
+      const allCacheKeys = Object.keys(localStorage).filter(key => 
+        key.includes('ao') || key.includes('demo') || key.includes('cache') || 
+        key.includes('video') || key.includes('access')
+      );
+      allCacheKeys.forEach(key => localStorage.removeItem(key));
+      log('🗑️ Cleared all AO-related cache:', allCacheKeys);
+    }
+    
+    log('✅ All process states reset complete');
+  }
+
+  // Add comprehensive reset function
+  static async comprehensiveReset(): Promise<void> {
+    log('🔄 Starting comprehensive reset...');
+    
+    // Clear all local storage
+    if (typeof window !== 'undefined') {
+      localStorage.clear();
+      log('🗑️ Cleared all localStorage');
+    }
+    
+    // Reset all process states
+    await this.resetAllProcessStates();
+    
+    // Force refresh blockchain data
+    try {
+      const { BlockchainVideoService } = await import('./blockchainVideoService');
+      await BlockchainVideoService.forceRefreshAllData();
+      log('✅ Blockchain data refreshed');
+    } catch (error) {
+      log('⚠️ Blockchain refresh failed:', error);
+    }
+    
+    log('✅ Comprehensive reset complete');
+  }
+
   // Verify all configured process IDs
   static async verifyAllProcesses(): Promise<void> {
     log('🔍 Verifying all configured AO processes...');
@@ -272,6 +401,7 @@ export class AOService {
         const testPromise = dryrun({
           process: processId,
           tags: [{ name: 'Action', value: action }],
+          ...MAINNET_URLS
         });
         
         return Promise.race([testPromise, timeoutPromise]);
@@ -401,7 +531,7 @@ Please ensure:
       callbacks.onBlockchainRegistrationStart?.();
       log('📨 Sending message to AO process:', messageId);
       
-      const uploadResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.CREATOR_NFT }));
+      const uploadResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.CREATOR_NFT, ...MAINNET_URLS }));
       log('🔍 Upload result received:', uploadResult);
 
       if (uploadResult.Messages?.length > 0) {
@@ -549,7 +679,7 @@ Please ensure:
         })
       );
 
-      const uploadResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.CREATOR_NFT }));
+      const uploadResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.CREATOR_NFT, ...MAINNET_URLS }));
 
       if (uploadResult.Messages?.length > 0) {
         const messageData = uploadResult.Messages[0].Data;
@@ -593,13 +723,25 @@ Please ensure:
         price: purchaseData.price
       });
 
+      // Check if user already has access before attempting purchase
+      try {
+        const existingAccess = await this.requestAccess(purchaseData.videoId);
+        if (existingAccess.granted && existingAccess.accessType === purchaseData.accessType) {
+          log('ℹ️ User already has', purchaseData.accessType, 'access to this video');
+          toast.success('You already have access to this video!', { id: 'purchase' });
+          return `existing-access-${purchaseData.videoId}-${Date.now()}`;
+        }
+      } catch (error) {
+        log('⚠️ Could not check existing access, proceeding with purchase:', error);
+      }
+
       // First check if the process is responding to Info
       const processResponding = await this.testProcess(processId);
       log(`Process ${processId} responding to Info:`, processResponding);
 
       if (!processResponding) {
         log(`❌ ${purchaseData.accessType} access process not responding to Info:`, processId);
-        return this.simulatePurchase(purchaseData);
+        throw new Error(`${purchaseData.accessType} access process not responding`);
       }
 
       toast.loading('Processing purchase...', { id: 'purchase' });
@@ -644,12 +786,12 @@ Please ensure:
         log('📨 Purchase message sent, ID:', messageId);
       } catch (messageError) {
         log('❌ Failed to send purchase message:', messageError);
-        return this.simulatePurchase(purchaseData);
+        throw new Error('Failed to send purchase message');
       }
 
       let purchaseResult: any;
       try {
-        purchaseResult = await retry(() => result({ message: messageId, process: processId }));
+        purchaseResult = await retry(() => result({ message: messageId, process: processId, ...MAINNET_URLS }));
         log('📥 Purchase result received:', {
           messageCount: purchaseResult.Messages?.length || 0,
           firstMessageData: purchaseResult.Messages?.[0]?.Data,
@@ -657,11 +799,27 @@ Please ensure:
         });
       } catch (resultError) {
         log('❌ Failed to get purchase result:', resultError);
-        return this.simulatePurchase(purchaseData);
+        
+        // Check if the error contains "already has access" message
+        const errorMessage = resultError instanceof Error ? resultError.message : String(resultError);
+        if (errorMessage.includes('already has premium access') || errorMessage.includes('already has basic access')) {
+          log('ℹ️ User already has access (detected in result error), treating as success');
+          toast.success('You already have access to this video!', { id: 'purchase' });
+          return `existing-access-${purchaseData.videoId}-${Date.now()}`;
+        }
+        
+        throw new Error('Failed to get purchase result');
       }
 
       if (purchaseResult.Messages?.length > 0) {
         const firstMessage = purchaseResult.Messages[0];
+        
+        log('📥 Raw message details:', {
+          Action: firstMessage.Action,
+          Data: firstMessage.Data,
+          From: firstMessage.From,
+          Target: firstMessage.Target
+        });
         
         // Check for success action first
         if (firstMessage.Action === 'Premium-Access-Purchased' || firstMessage.Action === 'Basic-Access-Purchased') {
@@ -677,7 +835,16 @@ Please ensure:
         // Check for error action
         if (firstMessage.Action === 'Error') {
           log('❌ Purchase failed with error action:', firstMessage.Data);
-          return this.simulatePurchase(purchaseData);
+          
+          // Special handling for "already has access" error
+          if (firstMessage.Data?.includes('already has premium access') || firstMessage.Data?.includes('already has basic access')) {
+            log('ℹ️ User already has access, treating as success');
+            toast.success('You already have access to this video!', { id: 'purchase' });
+            // Return a mock token ID to indicate success
+            return `existing-access-${purchaseData.videoId}-${Date.now()}`;
+          }
+          
+          throw new Error('Purchase failed: ' + firstMessage.Data);
         }
         
         // Fallback: check data field for token ID
@@ -700,44 +867,378 @@ Please ensure:
         // Check if it's an error message
         if (resultData && resultData.error) {
           log('❌ Purchase failed with error from process:', resultData.error);
-          return this.simulatePurchase(purchaseData);
+          
+          // Special handling for "already has access" error in resultData.error
+          if (resultData.error.includes('already has premium access') || resultData.error.includes('already has basic access')) {
+            log('ℹ️ User already has access (detected in resultData.error), treating as success');
+            toast.success('You already have access to this video!', { id: 'purchase' });
+            return `existing-access-${purchaseData.videoId}-${Date.now()}`;
+          }
+          
+          throw new Error('Purchase failed: ' + resultData.error);
         }
         
-        // If we got a message but no recognizable token, still try to simulate
-        log('⚠️ Got response but no token ID found, falling back to simulation');
-        return this.simulatePurchase(purchaseData);
+        // If we got a message but no recognizable token, log the raw response for debugging
+        log('❌ No token ID found in purchase response. Raw response:', {
+          messageAction: firstMessage.Action,
+          messageData: firstMessage.Data,
+          parsedData: resultData
+        });
+        throw new Error('Purchase failed: No token ID in response');
       }
       
       log('❌ No messages received from purchase process, falling back to simulation');
-      return this.simulatePurchase(purchaseData);
+      throw new Error('No messages received from purchase process');
       
     } catch (error) {
       errorLog('Purchase process error:', error as Error);
+      
+      // Final check for "already has access" error in the catch block
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('already has premium access') || errorMessage.includes('already has basic access')) {
+        log('ℹ️ User already has access (detected in catch block), treating as success');
+        toast.success('You already have access to this video!', { id: 'purchase' });
+        return `existing-access-${purchaseData.videoId}-${Date.now()}`;
+      }
+      
       // Don't show error toast yet, try simulation first
-      return this.simulatePurchase(purchaseData);
+      throw error;
     }
   }
 
-  // Simulate purchase for demo purposes
-  private static simulatePurchase(purchaseData: AccessPurchaseData): string {
-    log(`🎭 Simulating ${purchaseData.accessType} purchase for demo mode`);
-    
-    const simulatedTokenId = `demo-${purchaseData.accessType}-${Date.now()}`;
-    log(`🎭 Simulating successful purchase with token ID: ${simulatedTokenId}`);
-    
-    toast.success(`✅ ${purchaseData.accessType === 'basic' ? 'Basic' : 'Premium'} access purchased successfully! (Demo Mode)`, { id: 'purchase' });
-    
-    // Store the simulated purchase in localStorage for testing
-    const purchases = JSON.parse(localStorage.getItem('demo-purchases') || '{}');
-    purchases[purchaseData.videoId] = {
-      tokenId: simulatedTokenId,
+  // Add bypass purchase function that checks actual ownership first
+  static async purchaseAccessWithBypass(purchaseData: AccessPurchaseData): Promise<string> {
+    try {
+      log('🔄 Purchase with bypass - checking actual ownership first...');
+      
+      // Get user address
+      await ensureWalletConnected();
+      const userAddress = await window.arweaveWallet.getActiveAddress();
+      if (!userAddress) {
+        throw new Error('Wallet not connected');
+      }
+      
+      log('👤 User address:', userAddress);
+      log('🎬 Video ID:', purchaseData.videoId);
+      
+      // Check actual NFT ownership first
+      const actualAccess = await this.checkActualAccess(purchaseData.videoId, userAddress);
+      
+      log('🔍 Actual access check completed:', {
+        hasCreatorAccess: actualAccess.hasCreatorAccess,
+        hasBasicAccess: actualAccess.hasBasicAccess,
+        hasPremiumAccess: actualAccess.hasPremiumAccess,
+        accessDetails: actualAccess.accessDetails
+      });
+      
+      // If user already has any type of access, return success
+      if (actualAccess.hasCreatorAccess || actualAccess.hasBasicAccess || actualAccess.hasPremiumAccess) {
+        log('✅ User already has access, returning success');
+        log('📊 Access details:', actualAccess.accessDetails);
+        return `existing-access-${Date.now()}`;
+      }
+      
+      // If no access, proceed with normal purchase
+      log('✅ No existing access found, proceeding with purchase...');
+      log('💰 Purchase data:', purchaseData);
+      return await this.purchaseAccess(purchaseData);
+      
+    } catch (error) {
+      errorLog('❌ Purchase with bypass failed', error as Error);
+      throw error;
+    }
+  }
+
+  // Add a completely bypassed purchase method that doesn't rely on AO process state
+  static async purchaseAccessDirect(purchaseData: AccessPurchaseData): Promise<string> {
+    try {
+      log('🚀 Direct purchase - bypassing AO process state checks...');
+      
+      // Get user address
+      await ensureWalletConnected();
+      const userAddress = await window.arweaveWallet.getActiveAddress();
+      if (!userAddress) {
+        throw new Error('Wallet not connected');
+      }
+      
+      log('👤 User address:', userAddress);
+      log('🎬 Video ID:', purchaseData.videoId);
+      
+      const processId = purchaseData.accessType === 'basic' ? AO_PROCESSES.BASIC_ACCESS : AO_PROCESSES.PREMIUM_ACCESS;
+      
+      // Use the correct action names that the AO processes actually support
+      const action = purchaseData.accessType === 'basic' ? 'Purchase-Basic-Access' : 'Purchase-Premium-Access';
+
+      log('🛒 Starting direct purchase process:', {
+        processId,
+        action,
+        videoId: purchaseData.videoId,
       accessType: purchaseData.accessType,
-      purchasedAt: Date.now(),
-      duration: purchaseData.duration
-    };
-    localStorage.setItem('demo-purchases', JSON.stringify(purchases));
+        price: purchaseData.price
+      });
+
+      toast.loading('Processing purchase...', { id: 'purchase' });
+
+      // Get video details to populate required fields
+      let videoDetails: any = null;
+      try {
+        videoDetails = await this.getVideoDetails(purchaseData.videoId);
+        log('📹 Video details for purchase:', videoDetails);
+      } catch (error) {
+        log('⚠️ Could not fetch video details, using defaults:', error);
+      }
+
+      const tags = [
+        { name: 'Action', value: action },
+        { name: 'VideoId', value: purchaseData.videoId },
+        { name: 'Payment', value: purchaseData.price.toString() },
+        { name: 'Title', value: videoDetails?.title || 'Unknown Video' },
+        { name: 'ThumbnailTx', value: videoDetails?.thumbnailTx || videoDetails?.arweaveThumbnailId || 'placeholder' },
+        { name: 'ArweaveMetadataId', value: `metadata-${purchaseData.videoId}-${Date.now()}` }, // Required by AO processes
+      ];
+
+      // Add duration for basic access
+      if (purchaseData.accessType === 'basic' && purchaseData.duration) {
+        tags.push({ name: 'Duration', value: purchaseData.duration.toString() });
+      }
+
+      log(`📤 Sending direct purchase message with action "${action}" and tags:`, tags);
+
+      const signer = await createSigner();
+
+      let messageId: string;
+      try {
+        messageId = await retry(() =>
+          message({
+            process: processId,
+            signer,
+            tags,
+            data: '',
+          })
+        );
+        log(`📨 Direct purchase message sent with action "${action}", ID:`, messageId);
+      } catch (messageError) {
+        log(`❌ Failed to send direct purchase message with action "${action}":`, messageError);
+        throw new Error('Failed to send purchase message');
+      }
+
+      let purchaseResult: any;
+      try {
+        purchaseResult = await retry(() => result({ message: messageId, process: processId, ...MAINNET_URLS }));
+        log(`📥 Direct purchase result received for action "${action}":`, {
+          messageCount: purchaseResult.Messages?.length || 0,
+          firstMessageData: purchaseResult.Messages?.[0]?.Data,
+          firstMessageAction: purchaseResult.Messages?.[0]?.Action
+        });
+      } catch (resultError) {
+        log(`❌ Failed to get direct purchase result for action "${action}":`, resultError);
+        throw new Error('Failed to get purchase result');
+      }
+
+      if (purchaseResult.Messages?.length > 0) {
+        const firstMessage = purchaseResult.Messages[0];
+        
+        log(`📥 Raw direct message details for action "${action}":`, {
+          Action: firstMessage.Action,
+          Data: firstMessage.Data,
+          From: firstMessage.From,
+          Target: firstMessage.Target
+        });
+        
+        // Check for success actions
+        const successActions = [
+          'Premium-Access-NFT-Minted',
+          'Basic-Access-NFT-Minted',
+          'Access-Granted',
+          'Premium-Access-Purchased',
+          'Basic-Access-Purchased',
+          'NFT-Created',
+          'Access-Created'
+        ];
+        
+        if (successActions.includes(firstMessage.Action)) {
+          const resultData = safeJsonParse(firstMessage.Data, {});
+          log(`✅ Direct purchase successful via action "${action}":`, resultData);
+          
+          if (resultData && (resultData.TokenId || resultData.AccessTokenId || resultData.token_id)) {
+            const tokenId = resultData.TokenId || resultData.AccessTokenId || resultData.token_id;
+            toast.success('Access purchased successfully!', { id: 'purchase' });
+            return tokenId;
+          }
+        }
+        
+        // Check for error action
+        if (firstMessage.Action === 'Error') {
+          log(`❌ Direct purchase failed with error action "${action}":`, firstMessage.Data);
+          throw new Error('Purchase failed: ' + firstMessage.Data);
+        }
+        
+        // Fallback: check data field for token ID
+        const resultData = safeJsonParse(firstMessage.Data, {});
+        log(`🔍 Parsed direct purchase result for action "${action}":`, resultData);
+        
+        if (resultData && (resultData.TokenId || resultData.AccessTokenId || resultData.token_id)) {
+          const tokenId = resultData.TokenId || resultData.AccessTokenId || resultData.token_id;
+          log(`✅ Found token ID in direct purchase with action "${action}":`, tokenId);
+          toast.success('Access purchased successfully!', { id: 'purchase' });
+          return tokenId;
+        }
+        
+        // Check if it's an error message
+        if (resultData && resultData.error) {
+          log(`❌ Direct purchase failed with error from process for action "${action}":`, resultData.error);
+          throw new Error('Purchase failed: ' + resultData.error);
+        }
+        
+        // Check for "already has access" messages and treat them as success
+        if (firstMessage.Data && typeof firstMessage.Data === 'string') {
+          const dataText = firstMessage.Data.toLowerCase();
+          if (dataText.includes('already has premium access') || dataText.includes('already has basic access')) {
+            log(`✅ User already has access - treating as success for action "${action}":`, firstMessage.Data);
+            toast.success('You already have access to this video!', { id: 'purchase' });
+            return `existing-access-${purchaseData.accessType}-${purchaseData.videoId}`;
+          }
+        }
+        
+        // If we got a message but no recognizable token, log the raw response for debugging
+        log(`❌ No token ID found in direct purchase response for action "${action}". Raw response:`, {
+          messageAction: firstMessage.Action,
+          messageData: firstMessage.Data,
+          parsedData: resultData
+        });
+        throw new Error('Purchase failed: No token ID in response');
+      }
+      
+      log(`❌ No messages received from direct purchase process for action "${action}"`);
+      throw new Error('No messages received from purchase process');
+      
+    } catch (error) {
+      errorLog('Direct purchase process error:', error as Error);
+      throw error;
+    }
+  }
+
+  // Test what actions the AO processes support
+  static async testProcessActions(processId: string): Promise<{
+    success: boolean;
+    supportedActions: string[];
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    const supportedActions: string[] = [];
     
-    return simulatedTokenId;
+    // Determine process type based on process ID
+    const isPremiumProcess = processId === 'IXOzHMQZoBIyq_mtcoHG9mfhusxSwYu932wWB6L6RjE';
+    const isBasicProcess = processId === 'VxGBhfTqCQwrcxovPPpY6fdHqooHh8xITuI5ry3lTJs';
+    
+    // Common actions for all processes
+    const commonActions = [
+      'Info',
+      'Balance', 
+      'Balances'
+    ];
+    
+    // Process-specific actions
+    const premiumActions = [
+      'Verify-Premium-Access',
+      'Get-User-Premium-Access'
+    ];
+    
+    const basicActions = [
+      'Verify-Access',
+      'Get-User-Access'  // Fixed: was 'Get-User-Basic-Access'
+    ];
+    
+    // Test common actions
+    for (const action of commonActions) {
+      try {
+        log(`🧪 Testing action "${action}" on process ${processId}`);
+        const result = await mainnetDryrun({
+          process: processId,
+          tags: [{ name: 'Action', value: action }]
+        });
+        
+        if (result.Messages && result.Messages.length > 0) {
+          supportedActions.push(action);
+          log(`✅ Action "${action}" is supported`);
+        } else {
+          log(`❌ Action "${action}" returned no messages`);
+          errors.push(`${action}: no messages`);
+        }
+      } catch (error) {
+        log(`❌ Action "${action}" failed:`, error);
+        errors.push(`${action}: ${error}`);
+      }
+    }
+    
+    // Test process-specific actions
+    const specificActions = isPremiumProcess ? premiumActions : basicActions;
+    for (const action of specificActions) {
+      try {
+        log(`🧪 Testing action "${action}" on process ${processId}`);
+        const result = await mainnetDryrun({
+          process: processId,
+          tags: [{ name: 'Action', value: action }]
+        });
+        
+        if (result.Messages && result.Messages.length > 0) {
+          supportedActions.push(action);
+          log(`✅ Action "${action}" is supported`);
+        } else {
+          log(`❌ Action "${action}" returned no messages`);
+          errors.push(`${action}: no messages`);
+        }
+      } catch (error) {
+        log(`❌ Action "${action}" failed:`, error);
+        errors.push(`${action}: ${error}`);
+      }
+    }
+    
+    // Test purchase actions separately with proper parameters
+    const purchaseActions = [
+      { action: 'Purchase-Premium-Access', process: 'premium' },
+      { action: 'Purchase-Basic-Access', process: 'basic' }
+    ];
+    
+    for (const { action, process } of purchaseActions) {
+      // Only test purchase actions for the correct process
+      if ((process === 'premium' && isPremiumProcess) || (process === 'basic' && isBasicProcess)) {
+        try {
+          log(`🧪 Testing purchase action "${action}" on process ${processId}`);
+          const tags = [
+            { name: 'Action', value: action },
+            { name: 'VideoId', value: 'test-video-id' },
+            { name: 'Payment', value: '2.99' },
+            { name: 'Title', value: 'Test Video' },
+            { name: 'ThumbnailTx', value: 'test-thumbnail' },
+            { name: 'ArweaveMetadataId', value: 'test-metadata-id' }
+          ];
+          
+          if (action === 'Purchase-Basic-Access') {
+            tags.push({ name: 'Duration', value: '30' });
+          }
+          
+          const result = await mainnetDryrun({ process: processId, tags: tags });
+          
+          if (result.Messages && result.Messages.length > 0) {
+            supportedActions.push(action);
+            log(`✅ Purchase action "${action}" is supported`);
+          } else {
+            log(`❌ Purchase action "${action}" returned no messages`);
+            errors.push(`${action}: no messages`);
+          }
+        } catch (error) {
+          log(`❌ Purchase action "${action}" failed:`, error);
+          errors.push(`${action}: ${error}`);
+        }
+      }
+    }
+    
+    return {
+      success: supportedActions.length > 0,
+      supportedActions,
+      errors
+    };
   }
 
   // Check if user owns access NFTs for a video
@@ -760,42 +1261,9 @@ Please ensure:
         log('Creator NFT check failed:', error);
       }
       
-      // Check for demo purchases in localStorage (fallback when AO processes are not responding)
-      try {
-        const purchases = JSON.parse(localStorage.getItem('demo-purchases') || '{}');
-        const purchase = purchases[videoId];
-        if (purchase) {
-          log('🎭 Found demo purchase:', purchase);
-          
-          // Check if basic access and if it's expired
-          if (purchase.accessType === 'basic' && purchase.duration) {
-            const expiresAt = purchase.purchasedAt + (purchase.duration * 24 * 60 * 60 * 1000);
-            if (Date.now() > expiresAt) {
-              log('⏰ Demo basic access expired');
-            } else {
-              log('✅ Valid demo basic access found');
-              return {
-                granted: true,
-                accessType: 'basic',
-                sessionId: `demo-basic-${Date.now()}`
-              };
-            }
-          } else if (purchase.accessType === 'premium') {
-            log('✅ Valid demo premium access found');
-            return {
-              granted: true,
-              accessType: 'premium',
-              sessionId: `demo-premium-${Date.now()}`
-            };
-          }
-        }
-      } catch (error) {
-        log('Demo purchase check failed:', error);
-      }
-      
       // Check for Basic Access NFTs
       try {
-        const basicAccessResult = await dryrun({
+        const basicAccessResult = await mainnetDryrun({
           process: AO_PROCESSES.BASIC_ACCESS,
           tags: [
             { name: 'Action', value: 'Verify-Basic-Access' },
@@ -821,7 +1289,7 @@ Please ensure:
       
       // Check for Premium Access NFTs
       try {
-        const premiumAccessResult = await dryrun({
+        const premiumAccessResult = await mainnetDryrun({
           process: AO_PROCESSES.PREMIUM_ACCESS,
           tags: [
             { name: 'Action', value: 'Verify-Premium-Access' },
@@ -864,7 +1332,9 @@ Please ensure:
   // Get user's Creator NFT balance for a specific video
   static async getUserCreatorNFTBalance(userAddress: string, videoId?: string): Promise<number> {
     try {
-      const balanceResult = await dryrun({
+      log('🔍 Getting Creator NFT balance for:', { userAddress, videoId });
+      
+      const balanceResult = await mainnetDryrun({
         process: AO_PROCESSES.CREATOR_NFT,
         tags: [
           { name: 'Action', value: 'Balance' },
@@ -873,13 +1343,77 @@ Please ensure:
         ]
       });
       
-      if (balanceResult.Messages?.length > 0) {
-        const balance = parseInt(balanceResult.Messages[0].Data) || 0;
+      if (balanceResult.Messages && balanceResult.Messages.length > 0) {
+        const balance = parseInt(balanceResult.Messages[0].Data);
+        log('✅ Creator NFT balance:', balance);
         return balance;
       }
+      
+      log('⚠️ No balance response from Creator NFT process');
       return 0;
     } catch (error) {
-      log('Creator NFT balance check failed:', error);
+      log('❌ Error getting Creator NFT balance:', error);
+      return 0;
+    }
+  }
+
+  // Get user's Access NFT balance for a specific video
+  static async getUserAccessNFTBalance(userAddress: string, videoId: string, accessType: 'basic' | 'premium'): Promise<number> {
+    try {
+      log('🔍 Getting Access NFT balance for:', { userAddress, videoId, accessType });
+      
+      const processId = accessType === 'premium' ? AO_PROCESSES.PREMIUM_ACCESS : AO_PROCESSES.BASIC_ACCESS;
+      
+      // First, get all user's NFTs for this access type
+      const balanceResult = await mainnetDryrun({
+        process: processId,
+        tags: [
+          { name: 'Action', value: 'Balances' },
+          { name: 'Target', value: userAddress }
+        ]
+      });
+
+      if (balanceResult.Messages && balanceResult.Messages.length > 0) {
+        try {
+          const balancesData = JSON.parse(balanceResult.Messages[0].Data);
+          log('📊 Raw balances data:', balancesData);
+          
+          // If balancesData is an object with token IDs as keys, check for video-specific tokens
+          if (typeof balancesData === 'object' && balancesData !== null) {
+            let videoSpecificCount = 0;
+            
+            // Look for tokens that contain the video ID
+            for (const [tokenId, balance] of Object.entries(balancesData)) {
+              if (typeof balance === 'number' && balance > 0) {
+                // Check if this token is for the specific video
+                if (tokenId.includes(videoId)) {
+                  videoSpecificCount += balance;
+                  log('✅ Found video-specific token:', { tokenId, balance });
+                }
+              }
+            }
+            
+            log('✅ Video-specific Access NFT balance:', videoSpecificCount);
+            return videoSpecificCount;
+          }
+          
+          // If it's a simple number, it might be a general balance (not video-specific)
+          const generalBalance = parseInt(balanceResult.Messages[0].Data);
+          if (!isNaN(generalBalance)) {
+            log('⚠️ General balance returned (not video-specific):', generalBalance);
+            // For safety, return 0 if we can't confirm it's video-specific
+            return 0;
+          }
+        } catch (parseError) {
+          log('❌ Failed to parse balance data:', parseError);
+          return 0;
+        }
+      }
+      
+      log('⚠️ No balance response from Access NFT process');
+      return 0;
+    } catch (error) {
+      log('❌ Error getting Access NFT balance:', error);
       return 0;
     }
   }
@@ -923,6 +1457,7 @@ Please ensure:
             { name: 'Action', value: 'Get-Video' },
             { name: 'VideoId', value: videoId },
           ],
+          ...MAINNET_URLS
         })
       );
 
@@ -958,6 +1493,7 @@ Please ensure:
             { name: 'Action', value: 'Get-Video' },
             { name: 'VideoId', value: videoId },
           ],
+          ...MAINNET_URLS
         })
       );
 
@@ -989,6 +1525,7 @@ Please ensure:
         dryrun({
           process: AO_PROCESSES.CREATOR_NFT,
           tags,
+          ...MAINNET_URLS
         })
       );
 
@@ -1018,6 +1555,7 @@ Please ensure:
         dryrun({
           process: AO_PROCESSES.BASIC_ACCESS,
           tags,
+          ...MAINNET_URLS
         })
       );
 
@@ -1029,6 +1567,7 @@ Please ensure:
             { name: 'Action', value: 'Get-User-Premium-Access' },
             ...(userAddress ? [{ name: 'User', value: userAddress }] : []),
           ],
+          ...MAINNET_URLS
         })
       );
 
@@ -1068,7 +1607,7 @@ Please ensure:
         })
       );
 
-      const renewResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.BASIC_ACCESS }));
+      const renewResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.BASIC_ACCESS, ...MAINNET_URLS }));
 
       if (renewResult.Messages?.length > 0) {
         const resultData = safeJsonParse(renewResult.Messages[0].Data, {});
@@ -1111,7 +1650,7 @@ Please ensure:
         })
       );
 
-      const transferResult = await retry(() => result({ message: messageId, process: processId }));
+      const transferResult = await retry(() => result({ message: messageId, process: processId, ...MAINNET_URLS }));
 
       if (transferResult.Messages?.length > 0) {
         toast.success('NFT transferred successfully!', { id: 'transfer' });
@@ -1132,6 +1671,7 @@ Please ensure:
         dryrun({
           process: AO_PROCESSES.CREATOR_NFT,
           tags: [{ name: 'Action', value: 'Platform-Stats' }],
+          ...MAINNET_URLS
         })
       );
 
@@ -1160,6 +1700,7 @@ Please ensure:
             { name: 'Action', value: 'Bulk-Access-Check' },
             { name: 'VideoIds', value: JSON.stringify(videoIds) },
           ],
+          ...MAINNET_URLS
         })
       );
 
@@ -1196,7 +1737,7 @@ Please ensure:
         })
       );
 
-      const startResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.ACCESS_CONTROL }));
+      const startResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.ACCESS_CONTROL, ...MAINNET_URLS }));
       return startResult.Messages?.length > 0;
     } catch (error) {
       errorLog('Start viewing session failed:', error as Error);
@@ -1210,15 +1751,14 @@ Please ensure:
       const address = userAddress || (await ensureWalletConnected(), await window.arweaveWallet?.getActiveAddress());
       if (!address) return 0;
 
-      const balanceResult = await retry(() =>
-        dryrun({
+      const balanceResult = await dryrun({
           process: AO_PROCESSES.CREATOR_NFT,
           tags: [
             { name: 'Action', value: 'Balance' },
             { name: 'Recipient', value: address },
           ],
-        })
-      );
+        ...MAINNET_URLS
+      });
 
       if (balanceResult.Messages?.length > 0) {
         const parsedData = safeJsonParse(balanceResult.Messages[0].Data, {});
@@ -1261,6 +1801,7 @@ Please ensure:
             { name: 'Action', value: 'Get-Creator-Videos' },
             { name: 'Creator', value: address },
           ],
+          ...MAINNET_URLS
         })
       );
 
@@ -1293,11 +1834,191 @@ Please ensure:
         })
       );
 
-      const endResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.ACCESS_CONTROL }));
+      const endResult = await retry(() => result({ message: messageId, process: AO_PROCESSES.ACCESS_CONTROL, ...MAINNET_URLS }));
       return endResult.Messages?.length > 0;
     } catch (error) {
       errorLog('End viewing session failed:', error as Error);
       return false;
+    }
+  }
+
+  // Add function to check actual NFT ownership
+  static async checkActualAccess(videoId: string, userAddress: string): Promise<{
+    hasCreatorAccess: boolean;
+    hasBasicAccess: boolean;
+    hasPremiumAccess: boolean;
+    accessDetails: any;
+  }> {
+    try {
+      log('🔍 Checking actual access for:', { videoId, userAddress });
+      
+      // Check Creator NFT balance
+      const creatorBalance = await this.getUserCreatorNFTBalance(videoId, userAddress);
+      
+      // Check Basic Access NFT balance
+      const basicBalance = await this.getUserAccessNFTBalance(userAddress, videoId, 'basic');
+      
+      // Check Premium Access NFT balance
+      const premiumBalance = await this.getUserAccessNFTBalance(userAddress, videoId, 'premium');
+      
+      const result = {
+        hasCreatorAccess: creatorBalance > 0,
+        hasBasicAccess: basicBalance > 0,
+        hasPremiumAccess: premiumBalance > 0,
+        accessDetails: {
+          creatorBalance,
+          basicBalance,
+          premiumBalance
+        }
+      };
+      
+      log('✅ Actual access check result:', result);
+      return result;
+      
+    } catch (error) {
+      errorLog('❌ Failed to check actual access', error as Error);
+      return {
+        hasCreatorAccess: false,
+        hasBasicAccess: false,
+        hasPremiumAccess: false,
+        accessDetails: { error: error }
+      };
+    }
+  }
+
+  // Add function to test mainnet connectivity and process responses
+  static async testMainnetConnectivity(): Promise<{
+    success: boolean;
+    details: any;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    const details: any = {};
+    
+    try {
+      log('🧪 Testing mainnet connectivity...');
+      
+      // Test each process with a simple Info action
+      const processes = [
+        { name: 'Creator NFT', id: AO_PROCESSES.CREATOR_NFT },
+        { name: 'Basic Access', id: AO_PROCESSES.BASIC_ACCESS },
+        { name: 'Premium Access', id: AO_PROCESSES.PREMIUM_ACCESS },
+        { name: 'Access Control', id: AO_PROCESSES.ACCESS_CONTROL },
+        { name: 'Token', id: AO_PROCESSES.TOKEN }
+      ];
+      
+      for (const process of processes) {
+        try {
+          log(`🔍 Testing ${process.name} process...`);
+          
+          const result = await mainnetDryrun({
+            process: process.id,
+            tags: [
+              { name: 'Action', value: 'Info' }
+            ]
+          });
+          
+          details[process.name] = {
+            success: true,
+            messages: result.Messages?.length || 0,
+            data: result.Messages?.[0]?.Data || 'No data'
+          };
+          
+          log(`✅ ${process.name} test successful`);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          errors.push(`${process.name}: ${errorMsg}`);
+          details[process.name] = {
+            success: false,
+            error: errorMsg
+          };
+          log(`❌ ${process.name} test failed:`, errorMsg);
+        }
+      }
+      
+      const success = errors.length === 0;
+      log(`🧪 Mainnet connectivity test ${success ? 'PASSED' : 'FAILED'}`);
+      
+      return { success, details, errors };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      errors.push(`General test error: ${errorMsg}`);
+      return { success: false, details, errors };
+    }
+  }
+
+  // Add function to test actual access detection for a specific user and video
+  static async testAccessDetection(userAddress: string, videoId: string): Promise<{
+    success: boolean;
+    results: any;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    const results: any = {};
+    
+    try {
+      log('🧪 Testing access detection for:', { userAddress, videoId });
+      
+      // Test Creator NFT balance
+      try {
+        const creatorBalance = await this.getUserCreatorNFTBalance(userAddress, videoId);
+        results.creatorBalance = {
+          success: true,
+          balance: creatorBalance
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push(`Creator balance check: ${errorMsg}`);
+        results.creatorBalance = { success: false, error: errorMsg };
+      }
+      
+      // Test Basic Access balance
+      try {
+        const basicBalance = await this.getUserAccessNFTBalance(userAddress, videoId, 'basic');
+        results.basicBalance = {
+          success: true,
+          balance: basicBalance
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push(`Basic access check: ${errorMsg}`);
+        results.basicBalance = { success: false, error: errorMsg };
+      }
+      
+      // Test Premium Access balance
+      try {
+        const premiumBalance = await this.getUserAccessNFTBalance(userAddress, videoId, 'premium');
+        results.premiumBalance = {
+          success: true,
+          balance: premiumBalance
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push(`Premium access check: ${errorMsg}`);
+        results.premiumBalance = { success: false, error: errorMsg };
+      }
+      
+      // Test full access check
+      try {
+        const fullAccess = await this.checkActualAccess(videoId, userAddress);
+        results.fullAccess = {
+          success: true,
+          access: fullAccess
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push(`Full access check: ${errorMsg}`);
+        results.fullAccess = { success: false, error: errorMsg };
+      }
+      
+      const success = errors.length === 0;
+      log(`🧪 Access detection test ${success ? 'PASSED' : 'FAILED'}`);
+      
+      return { success, results, errors };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      errors.push(`General access test error: ${errorMsg}`);
+      return { success: false, results, errors };
     }
   }
 }

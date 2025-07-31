@@ -17,6 +17,17 @@ Denomination = 0
 Supply = 1000000
 Minted = 0
 
+-- Token Protocol Tags (for wallet recognition)
+-- These tags should be included in the spawn transaction:
+-- { name: 'Variant', value: 'ao.TKN' }
+-- { name: 'Type', value: 'Process' }
+-- { name: 'Token-Name', value: 'ZDrive Premium Access' }
+-- { name: 'Token-Symbol', value: 'ZPA' }
+-- { name: 'Token-Decimals', value: '0' }
+-- { name: 'Token-Total-Supply', value: '1000000' }
+-- { name: 'Implements', value: 'ANS-110' }
+-- { name: 'Data-Protocol', value: 'ao' }
+
 -- Process State
 Balances = {} -- address -> token_count
 PremiumAccessNFTs = {} -- token_id -> nft_data

@@ -13,6 +13,14 @@ interface VideoPageProps {
   videoId: string;
 }
 
+// Define the purchase data type inline
+interface AccessPurchaseData {
+  videoId: string;
+  accessType: 'basic' | 'premium';
+  duration?: number;
+  price: number;
+}
+
 const VideoPage: React.FC<VideoPageProps> = ({ videoId }) => {
   const router = useRouter();
   const { isConnected, walletAddress } = useWallet();
@@ -141,61 +149,80 @@ const VideoPage: React.FC<VideoPageProps> = ({ videoId }) => {
   };
 
   const handlePurchase = async (accessType: 'basic' | 'premium', duration?: number) => {
-    if (!isConnected) {
-      toast.error('Please connect your wallet to purchase access');
+    if (!walletAddress) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+    if (!videoId) {
+      toast.error('No video selected');
       return;
     }
 
-    if (!videoId) return;
-
-    setIsPurchasing(true);
     try {
-      const price = accessType === 'basic' ? (video?.rentPrice || 0.99) : (video?.price || 2.99);
+      toast.loading(`Processing ${accessType} purchase...`);
       
-      console.log('🛒 Starting purchase:', {
+      const purchaseData: AccessPurchaseData = {
         videoId,
         accessType,
-        duration,
-        price,
-        walletAddress
-      });
-      
-      const purchaseData = {
-        videoId: videoId,
-        accessType,
-        duration,
-        price
+        duration: duration || (accessType === 'basic' ? 30 : undefined),
+        price: accessType === 'premium' ? 2.99 : 0.99
       };
 
+      let tokenId: string;
+      
       try {
-        console.log('📞 Calling AOService.purchaseAccess...');
-        const tokenId = await AOService.purchaseAccess(purchaseData);
-        console.log('✅ Purchase successful, token ID:', tokenId);
+        // First try the bypass method
+        tokenId = await AOService.purchaseAccessWithBypass(purchaseData);
+      } catch (bypassError) {
+        console.log('Bypass purchase failed, trying direct purchase:', bypassError);
         
-        if (tokenId) {
-          // Refresh access status after purchase
-          console.log('🔄 Refreshing access status...');
-          await checkAccess();
+        // If bypass fails with "already has access" error, try direct purchase
+        if (bypassError instanceof Error && 
+            (bypassError.message.includes('already has premium access') || 
+             bypassError.message.includes('already has basic access'))) {
           
-          // Show success message based on token type
-          const isDemo = tokenId.startsWith('demo-');
-          const successMessage = isDemo 
-            ? `${accessType === 'basic' ? 'Basic' : 'Premium'} access purchased successfully! (Demo Mode)`
-            : `${accessType === 'basic' ? 'Basic' : 'Premium'} access purchased successfully!`;
-          
-          toast.success(successMessage);
+          toast.loading('Trying direct purchase method...');
+          try {
+            tokenId = await AOService.purchaseAccessDirect(purchaseData);
+          } catch (directError) {
+            console.log('Direct purchase also failed:', directError);
+            throw bypassError; // Throw the original error
+          }
+        } else {
+          throw bypassError;
         }
-      } catch (aoError) {
-        console.error('❌ Purchase failed:', aoError);
-        // The error is already handled in AOService, just re-throw it
-        throw aoError;
       }
+
+      toast.dismiss();
+      
+      if (tokenId.startsWith('existing-access-')) {
+        toast.success('✅ You already have access to this video!');
+      } else {
+        toast.success(`✅ ${accessType} access purchased successfully! Token ID: ${tokenId}`);
+      }
+
+      // Refresh access status
+      await checkAccess();
+
     } catch (error) {
+      toast.dismiss();
       console.error('Purchase failed:', error);
-      // Error toast is already shown in AOService, but show a user-friendly message
-      toast.error('Purchase failed. Please try again.');
-    } finally {
-      setIsPurchasing(false);
+      
+      // Handle specific error cases
+      if (error instanceof Error) {
+        if (error.message.includes('User already has premium access')) {
+          toast.success('✅ You already have premium access to this video!');
+          await checkAccess();
+          return;
+        }
+        if (error.message.includes('User already has basic access')) {
+          toast.success('✅ You already have basic access to this video!');
+          await checkAccess();
+          return;
+        }
+      }
+      
+      toast.error(`❌ Purchase failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -221,6 +248,110 @@ const VideoPage: React.FC<VideoPageProps> = ({ videoId }) => {
     } catch (error) {
       console.error('Start watching failed:', error);
       toast.error('Failed to start video playback');
+    }
+  };
+
+  // Add reset function for testing
+  const handleResetProcessState = async () => {
+    try {
+      toast.loading('🔄 Resetting process state...');
+      
+      // Use comprehensive reset
+      await AOService.comprehensiveReset();
+      
+      toast.dismiss();
+      toast.success('✅ Process state reset complete!');
+      
+      // Force page refresh to get fresh data
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+      
+    } catch (error) {
+      toast.dismiss();
+      console.error('Reset failed:', error);
+      toast.error('❌ Reset failed. Please try again.');
+    }
+  };
+
+  const handleCheckActualAccess = async () => {
+    if (!walletAddress) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+    
+    try {
+      toast.loading('🔍 Checking actual access...');
+      
+      const actualAccess = await AOService.checkActualAccess(videoId!, walletAddress);
+      
+      toast.dismiss();
+      
+      // Show detailed results
+      const message = `Access Check Results:
+• Creator Access: ${actualAccess.hasCreatorAccess ? '✅ Yes' : '❌ No'}
+• Basic Access: ${actualAccess.hasBasicAccess ? '✅ Yes' : '❌ No'}
+• Premium Access: ${actualAccess.hasPremiumAccess ? '✅ Yes' : '❌ No'}
+• Balances: ${JSON.stringify(actualAccess.accessDetails)}`;
+      
+      console.log('Actual access check:', actualAccess);
+      toast.success('Access check complete! Check console for details.');
+      
+    } catch (error) {
+      toast.dismiss();
+      console.error('Access check failed:', error);
+      toast.error('❌ Access check failed');
+    }
+  };
+
+  const handleTestMainnetConnectivity = async () => {
+    try {
+      toast.loading('🧪 Testing mainnet connectivity...');
+      
+      const result = await AOService.testMainnetConnectivity();
+      
+      toast.dismiss();
+      
+      if (result.success) {
+        toast.success('✅ Mainnet connectivity test passed!');
+      } else {
+        toast.error(`❌ Mainnet connectivity test failed: ${result.errors.join(', ')}`);
+      }
+      
+      console.log('Mainnet connectivity test results:', result);
+      
+    } catch (error) {
+      toast.dismiss();
+      console.error('Mainnet connectivity test failed:', error);
+      toast.error('❌ Mainnet connectivity test failed');
+    }
+  };
+
+  const handleTestAccessDetection = async () => {
+    if (!walletAddress) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+    
+    try {
+      toast.loading('🧪 Testing access detection...');
+      
+      const result = await AOService.testAccessDetection(walletAddress, videoId!);
+      
+      toast.dismiss();
+      
+      if (result.success) {
+        toast.success('✅ Access detection test passed!');
+      } else {
+        toast.error(`❌ Access detection test failed: ${result.errors.join(', ')}`);
+      }
+      
+      console.log('Access detection test results:', result);
+      
+    } catch (error) {
+      toast.dismiss();
+      console.error('Access detection test failed:', error);
+      toast.error('❌ Access detection test failed');
     }
   };
 
@@ -454,6 +585,96 @@ const VideoPage: React.FC<VideoPageProps> = ({ videoId }) => {
           {/* Purchase Options */}
           <div id="purchase-section" className="card-hover p-6">
             <h3 className="text-lg font-semibold text-white mb-4">💰 Access Options</h3>
+            
+            {/* Reset Button for Testing */}
+            <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+              <p className="text-yellow-400 text-sm mb-2">🧪 Testing Tools</p>
+              <button 
+                onClick={handleResetProcessState}
+                className="w-full bg-yellow-600 text-white py-2 rounded-lg hover:bg-yellow-700 transition-colors text-sm mb-2"
+              >
+                🔄 Reset Process State
+              </button>
+              <button 
+                onClick={handleCheckActualAccess}
+                className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              >
+                🔍 Check Actual Access
+              </button>
+              <button 
+                onClick={handleTestMainnetConnectivity}
+                className="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition-colors text-sm mb-2"
+              >
+                🌐 Test Mainnet Connectivity
+              </button>
+              <button 
+                onClick={handleTestAccessDetection}
+                className="w-full bg-teal-600 text-white py-2 rounded-lg hover:bg-teal-700 transition-colors text-sm"
+              >
+                🧪 Test Access Detection
+              </button>
+              <button 
+                onClick={async () => {
+                  if (!walletAddress) {
+                    toast.error('Please connect your wallet first');
+                    return;
+                  }
+                  try {
+                    toast.loading('🚀 Testing direct purchase...');
+                    const purchaseData: AccessPurchaseData = {
+                      videoId: videoId!,
+                      accessType: 'premium',
+                      price: 2.99
+                    };
+                    const tokenId = await AOService.purchaseAccessDirect(purchaseData);
+                    toast.dismiss();
+                    toast.success(`✅ Direct purchase successful! Token ID: ${tokenId}`);
+                    await checkAccess();
+                  } catch (error) {
+                    toast.dismiss();
+                    console.error('Direct purchase test failed:', error);
+                    toast.error(`❌ Direct purchase failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                  }
+                }}
+                className="w-full bg-orange-600 text-white py-2 rounded-lg hover:bg-orange-700 transition-colors text-sm"
+              >
+                🚀 Test Direct Purchase
+              </button>
+              <button 
+                onClick={async () => {
+                  try {
+                    toast.loading('🧪 Testing AO process actions...');
+                    
+                    const processes = [
+                      { name: 'Premium Access', id: 'IXOzHMQZoBIyq_mtcoHG9mfhusxSwYu932wWB6L6RjE' },
+                      { name: 'Basic Access', id: 'VxGBhfTqCQwrcxovPPpY6fdHqooHh8xITuI5ry3lTJs' }
+                    ];
+                    
+                    const results: any = {};
+                    
+                    for (const process of processes) {
+                      const result = await AOService.testProcessActions(process.id);
+                      results[process.name] = result;
+                    }
+                    
+                    toast.dismiss();
+                    console.log('AO Process Actions Test Results:', results);
+                    toast.success('✅ AO process actions test complete! Check console for details.');
+                    
+                  } catch (error) {
+                    toast.dismiss();
+                    console.error('AO process actions test failed:', error);
+                    toast.error(`❌ AO process actions test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                  }
+                }}
+                className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors text-sm"
+              >
+                🧪 Test AO Process Actions
+              </button>
+              <p className="text-yellow-400/60 text-xs mt-1">
+                Clears all access records for fresh testing
+              </p>
+            </div>
             
             {/* Show access status */}
             {isLoadingAccess ? (

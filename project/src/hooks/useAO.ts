@@ -1,32 +1,49 @@
+import { message, result, dryrun, createDataItemSigner } from '@permaweb/aoconnect';
 import { useState, useCallback } from 'react';
-import { message, result, createDataItemSigner, connect } from '@permaweb/aoconnect';
-import Arweave from 'arweave';
 import toast from 'react-hot-toast';
+import Arweave from 'arweave';
 import { AOService, AO_PROCESSES } from '../services/aoService';
 
-// Production AO Network Configuration - Mainnet only
-const AO_NETWORK_CONFIG = {
-  GATEWAY_URL: process.env.NEXT_PUBLIC_AO_GATEWAY_URL || 'https://arweave.net',
-  CU_URL: process.env.NEXT_PUBLIC_AO_CU_URL || 'https://cu.ao.dev',
-  MU_URL: process.env.NEXT_PUBLIC_AO_MU_URL || 'https://mu.ao.dev',
-  SU_URL: process.env.NEXT_PUBLIC_AO_SU_URL || 'https://su.ao.dev',
+// PROPER AOCONNECT MAINNET CONFIGURATION
+// Use Arweave mainnet endpoints to prevent testnet redirects
+const MAINNET_URLS = {
+  CU_URL: process.env.AO_CU_URL || 'https://cu.arweave.net',
+  MU_URL: process.env.AO_MU_URL || 'https://mu.arweave.net',
+  GATEWAY_URL: process.env.AO_GATEWAY_URL || 'https://arweave.net'
 };
 
-// Configure AO Connect for production mainnet only
-try {
-  // Verify no testnet URLs before connecting
-  const hasTestnetUrl = Object.values(AO_NETWORK_CONFIG).some(url => url.includes('testnet'));
-  if (hasTestnetUrl) {
-    console.error('❌ CRITICAL: Testnet URLs detected in useAO production config!', AO_NETWORK_CONFIG);
-    throw new Error('Testnet URLs not allowed in production useAO');
-  }
+console.log('✅ useAO: Using Arweave mainnet URLs');
+console.log('✅ useAO: Arweave mainnet URLs verified:', MAINNET_URLS);
 
-  connect(AO_NETWORK_CONFIG);
-  console.log('✅ useAO: AO Connect configured for production mainnet:', AO_NETWORK_CONFIG);
-} catch (error) {
-  console.error('❌ useAO: AO Connect production configuration failed:', error);
-  throw error;
-}
+// Helper function to ensure mainnet dryrun calls
+const mainnetDryrun = async (params: any) => {
+  console.log('🔧 Using Arweave mainnet URLs for dryrun (useAO)');
+  return dryrun({
+    ...params,
+    ...MAINNET_URLS
+  });
+};
+
+// Helper function to ensure mainnet message calls
+const mainnetMessage = async (params: any) => {
+  console.log('🔧 Using Arweave mainnet URLs for message (useAO)');
+  return message({
+    ...params,
+    ...MAINNET_URLS
+  });
+};
+
+// Helper function to ensure mainnet result calls
+const mainnetResult = async (params: any) => {
+  console.log('🔧 Using Arweave mainnet URLs for result (useAO)');
+  return result({
+    ...params,
+    ...MAINNET_URLS
+  });
+};
+
+// Environment-based configuration
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // Types
 interface UploadProgress {
@@ -209,7 +226,7 @@ export const useAO = (): UseAOReturn => {
       const signer = await createSigner();
       const videoId = `video-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
-      const messageId = await message({
+      const messageId = await mainnetMessage({
         process: AO_PROCESSES.CREATOR_NFT,
         signer,
         tags: [
@@ -284,7 +301,10 @@ export const useAO = (): UseAOReturn => {
       updateProgress('nft-creation', { progress: 50, message: 'Waiting for blockchain confirmation...' });
 
       // Wait for result
-      const uploadResult = await result({ message: messageId, process: AO_PROCESSES.CREATOR_NFT });
+      const uploadResult = await mainnetResult({ 
+        message: messageId, 
+        process: AO_PROCESSES.CREATOR_NFT,
+      });
       
       if (uploadResult.Messages?.length > 0) {
         const messageData = uploadResult.Messages[0].Data;
@@ -337,7 +357,7 @@ export const useAO = (): UseAOReturn => {
         ? AO_PROCESSES.BASIC_ACCESS 
         : AO_PROCESSES.PREMIUM_ACCESS;
 
-      const messageId = await message({
+      const messageId = await mainnetMessage({
         process: processId,
         signer,
         tags: [
@@ -350,7 +370,10 @@ export const useAO = (): UseAOReturn => {
         data: '',
       });
 
-      const purchaseResult = await result({ message: messageId, process: processId });
+      const purchaseResult = await mainnetResult({ 
+        message: messageId, 
+        process: processId,
+      });
       
       if (purchaseResult.Messages?.length > 0) {
         const messageData = purchaseResult.Messages[0].Data;

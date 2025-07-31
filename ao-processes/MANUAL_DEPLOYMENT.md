@@ -1,153 +1,219 @@
-# Manual AO Process Deployment
+# Manual AO Process Deployment Guide
+
+## Overview
+This guide explains how to manually deploy the ZDrive AO processes with proper token protocol tags for wallet recognition.
 
 ## Prerequisites
+1. Install AOS CLI: `npm install -g https://get_ao.g8way.io`
+2. Ensure you have Arweave wallet configured
+3. Have sufficient AR tokens for deployment
 
-1. **Install AOS CLI:**
-   ```bash
-   npm install -g https://get_ao.g8way.io
-   ```
+## Token Protocol Tags for Wallet Recognition
 
-2. **Verify installation:**
-   ```bash
-   aos --version
-   ```
+The key to making NFTs appear as collectibles in wallets like Wander/ArConnect is including the proper token protocol tags during spawn. These tags tell wallets that the AO process is a token/NFT.
 
-3. **Have AR tokens in your wallet** (for deployment fees)
+### Required Tags for Each Process Type
 
-## Step-by-Step Deployment
+#### Creator NFT Process
+```bash
+aos creator-nft-process.lua \
+  --tag "Variant" "ao.TKN" \
+  --tag "Type" "Process" \
+  --tag "Token-Name" "ZDrive Creator Rights" \
+  --tag "Token-Symbol" "ZCR" \
+  --tag "Token-Decimals" "0" \
+  --tag "Token-Total-Supply" "100000" \
+  --tag "Implements" "ANS-110" \
+  --tag "Data-Protocol" "ao" \
+  --tag "App-Name" "AO-NFT" \
+  --tag "Description" "Creator distribution rights for ZDrive video platform"
+```
+
+#### Premium Access NFT Process
+```bash
+aos premium-access-nft-process.lua \
+  --tag "Variant" "ao.TKN" \
+  --tag "Type" "Process" \
+  --tag "Token-Name" "ZDrive Premium Access" \
+  --tag "Token-Symbol" "ZPA" \
+  --tag "Token-Decimals" "0" \
+  --tag "Token-Total-Supply" "1000000" \
+  --tag "Implements" "ANS-110" \
+  --tag "Data-Protocol" "ao" \
+  --tag "App-Name" "AO-NFT" \
+  --tag "Description" "Permanent video viewing rights on ZDrive"
+```
+
+#### Basic Access NFT Process
+```bash
+aos basic-access-nft-process.lua \
+  --tag "Variant" "ao.TKN" \
+  --tag "Type" "Process" \
+  --tag "Token-Name" "ZDrive Basic Access" \
+  --tag "Token-Symbol" "ZBA" \
+  --tag "Token-Decimals" "0" \
+  --tag "Token-Total-Supply" "1000000" \
+  --tag "Implements" "ANS-110" \
+  --tag "Data-Protocol" "ao" \
+  --tag "App-Name" "AO-NFT" \
+  --tag "Description" "Time-limited video viewing rights on ZDrive"
+```
+
+#### Access Control Process
+```bash
+aos access-control-process.lua \
+  --tag "Variant" "ao.TKN" \
+  --tag "Type" "Process" \
+  --tag "Token-Name" "ZDrive Access Control" \
+  --tag "Token-Symbol" "ZAC" \
+  --tag "Token-Decimals" "0" \
+  --tag "Token-Total-Supply" "1000000" \
+  --tag "Implements" "ANS-110" \
+  --tag "Data-Protocol" "ao" \
+  --tag "App-Name" "AO-NFT" \
+  --tag "Description" "Access control and verification for ZDrive"
+```
+
+## Deployment Steps
 
 ### 1. Deploy Creator NFT Process
-
 ```bash
-# Navigate to ao-processes directory
 cd ao-processes
-
-# Start AOS CLI
-aos
-
-# In the AOS CLI, load and deploy the Creator NFT process
-.load creator-nft-process.lua
-
-# The CLI will return a process ID - save this!
-# Example output: Process ID: abc123...
+aos creator-nft-process.lua \
+  --tag "Variant" "ao.TKN" \
+  --tag "Type" "Process" \
+  --tag "Token-Name" "ZDrive Creator Rights" \
+  --tag "Token-Symbol" "ZCR" \
+  --tag "Token-Decimals" "0" \
+  --tag "Token-Total-Supply" "100000" \
+  --tag "Implements" "ANS-110" \
+  --tag "Data-Protocol" "ao" \
+  --tag "App-Name" "AO-NFT" \
+  --tag "Description" "Creator distribution rights for ZDrive video platform"
 ```
 
-**Save the Creator NFT Process ID**: `_________________`
+**Save the process ID** (e.g., `Lk-5IzUn46w7d0BliSvR9Yo4jazeEZ1kxt54F2SlpPc`)
 
 ### 2. Deploy Basic Access NFT Process
-
 ```bash
-# In AOS CLI (or restart if needed)
-.load basic-access-nft-process.lua
-
-# Save this process ID too!
+aos basic-access-nft-process.lua \
+  --tag "Variant" "ao.TKN" \
+  --tag "Type" "Process" \
+  --tag "Token-Name" "ZDrive Basic Access" \
+  --tag "Token-Symbol" "ZBA" \
+  --tag "Token-Decimals" "0" \
+  --tag "Token-Total-Supply" "1000000" \
+  --tag "Implements" "ANS-110" \
+  --tag "Data-Protocol" "ao" \
+  --tag "App-Name" "AO-NFT" \
+  --tag "Description" "Time-limited video viewing rights on ZDrive"
 ```
 
-**Save the Basic Access Process ID**: `_________________`
+**Save the process ID** (e.g., `VxGBhfTqCQwrcxovPPpY6fdHqooHh8xITuI5ry3lTJs`)
 
 ### 3. Deploy Premium Access NFT Process
-
 ```bash
-# In AOS CLI
-.load premium-access-nft-process.lua
-
-# Save this process ID!
+aos premium-access-nft-process.lua \
+  --tag "Variant" "ao.TKN" \
+  --tag "Type" "Process" \
+  --tag "Token-Name" "ZDrive Premium Access" \
+  --tag "Token-Symbol" "ZPA" \
+  --tag "Token-Decimals" "0" \
+  --tag "Token-Total-Supply" "1000000" \
+  --tag "Implements" "ANS-110" \
+  --tag "Data-Protocol" "ao" \
+  --tag "App-Name" "AO-NFT" \
+  --tag "Description" "Permanent video viewing rights on ZDrive"
 ```
 
-**Save the Premium Access Process ID**: `_________________`
+**Save the process ID** (e.g., `IXOzHMQZoBIyq_mtcoHG9mfhusxSwYu932wWB6L6RjE`)
 
 ### 4. Deploy Access Control Process
-
 ```bash
-# In AOS CLI
-.load access-control-process.lua
-
-# Save this process ID!
+aos access-control-process.lua \
+  --tag "Variant" "ao.TKN" \
+  --tag "Type" "Process" \
+  --tag "Token-Name" "ZDrive Access Control" \
+  --tag "Token-Symbol" "ZAC" \
+  --tag "Token-Decimals" "0" \
+  --tag "Token-Total-Supply" "1000000" \
+  --tag "Implements" "ANS-110" \
+  --tag "Data-Protocol" "ao" \
+  --tag "App-Name" "AO-NFT" \
+  --tag "Description" "Access control and verification for ZDrive"
 ```
 
-**Save the Access Control Process ID**: `_________________`
+**Save the process ID** (e.g., `X-Lbejt0NVMaYtknT9FW9FhXNeH8-pu0t7Y2ej0iawI`)
 
-### 5. Update Frontend Configuration
+## Update Frontend Configuration
 
-Edit `project/src/services/aoService.ts` and replace the process IDs:
+After deployment, update the process IDs in `project/src/services/aoService.ts`:
 
 ```typescript
-export const AO_PROCESSES = {
-  CREATOR_NFT: 'your_creator_nft_process_id_here',
-  BASIC_ACCESS: 'your_basic_access_process_id_here', 
-  PREMIUM_ACCESS: 'your_premium_access_process_id_here',
-  ACCESS_CONTROL: 'your_access_control_process_id_here',
-  TOKEN: 'token_process_id' // Keep this as is for now
+const AO_PROCESSES = {
+  CREATOR_NFT: 'Lk-5IzUn46w7d0BliSvR9Yo4jazeEZ1kxt54F2SlpPc',
+  BASIC_ACCESS: 'VxGBhfTqCQwrcxovPPpY6fdHqooHh8xITuI5ry3lTJs',
+  PREMIUM_ACCESS: 'IXOzHMQZoBIyq_mtcoHG9mfhusxSwYu932wWB6L6RjE',
+  ACCESS_CONTROL: 'X-Lbejt0NVMaYtknT9FW9FhXNeH8-pu0t7Y2ej0iawI',
+  TOKEN: 'xU9zFkq3X2ZQ6olwNVvr1vUWIjc3kXTWr7xKQD6dh10'
 };
 ```
 
-### 6. Configure Inter-Process Dependencies
+## Verification
 
-After deployment, send configuration messages to link the processes:
-
+### 1. Check Process Deployment
 ```bash
-# In AOS CLI, send configuration to Basic Access Process
-Send({ Target = "your_basic_access_process_id", Action = "Set-Config", CreatorNFTProcess = "your_creator_nft_process_id", TokenProcess = "token_process_id" })
-
-# Send configuration to Premium Access Process  
-Send({ Target = "your_premium_access_process_id", Action = "Set-Config", CreatorNFTProcess = "your_creator_nft_process_id", TokenProcess = "token_process_id" })
-
-# Send configuration to Access Control Process
-Send({ Target = "your_access_control_process_id", Action = "Set-Config", CreatorNFTProcess = "your_creator_nft_process_id", BasicAccessProcess = "your_basic_access_process_id", PremiumAccessProcess = "your_premium_access_process_id" })
+# Test each process with a dryrun
+aos --dryrun --process <PROCESS_ID> --tag "Action" "Info"
 ```
 
-### 7. Test the Deployment
+### 2. Check Wallet Recognition
+1. Open Wander/ArConnect wallet
+2. Go to Collectibles section
+3. Look for your deployed tokens
+4. They should appear with proper names and symbols
 
-1. **Restart your development server:**
-   ```bash
-   cd project
-   npm run dev
-   ```
+### 3. Test Token Functions
+```bash
+# Test balance
+aos --dryrun --process <PROCESS_ID> --tag "Action" "Balance" --tag "Target" <YOUR_ADDRESS>
 
-2. **Test upload functionality** - should now use real AO processes
-
-3. **Monitor the browser console** for any errors
-
-## Quick Copy-Paste Template
-
-After deployment, copy this template and fill in your process IDs:
-
-```typescript
-// Replace in project/src/services/aoService.ts
-export const AO_PROCESSES = {
-  CREATOR_NFT: 'PASTE_CREATOR_NFT_PROCESS_ID_HERE',
-  BASIC_ACCESS: 'PASTE_BASIC_ACCESS_PROCESS_ID_HERE',
-  PREMIUM_ACCESS: 'PASTE_PREMIUM_ACCESS_PROCESS_ID_HERE', 
-  ACCESS_CONTROL: 'PASTE_ACCESS_CONTROL_PROCESS_ID_HERE',
-  TOKEN: 'token_process_id'
-};
+# Test info
+aos --dryrun --process <PROCESS_ID> --tag "Action" "Info"
 ```
 
 ## Troubleshooting
 
-### Common Issues:
+### NFTs Not Appearing in Wallet
+1. **Check token protocol tags**: Ensure all required tags are present
+2. **Verify process deployment**: Use dryrun to test process functionality
+3. **Check wallet sync**: Some wallets may need time to index new tokens
+4. **Verify ANS-110 compliance**: Ensure metadata follows the standard
 
-1. **"Process not found"** - Make sure process ID is correct
-2. **"Insufficient funds"** - Add AR tokens to your wallet
-3. **"CORS errors"** - This is normal during deployment, should resolve once processes are active
-4. **"Signer not found"** - Make sure ArConnect wallet is connected
+### Process Deployment Fails
+1. **Check AOS CLI version**: Ensure you have the latest version
+2. **Verify wallet connection**: Ensure your wallet is properly connected
+3. **Check AR balance**: Ensure sufficient tokens for deployment
+4. **Review error messages**: Look for specific error details
 
-### Verification Commands:
+## Key Differences from Previous Implementation
 
-```bash
-# Test if a process is active
-Send({ Target = "your_process_id", Action = "Info" })
+### What Changed
+1. **Added token protocol tags**: `Variant: ao.TKN`, `Type: Process`, etc.
+2. **Enhanced ANS-110 compliance**: Proper metadata structure
+3. **Wallet recognition**: Tokens now appear as collectibles
+4. **Standard token interface**: Follows AO Token Protocol
 
-# Check process state
-Send({ Target = "your_process_id", Action = "Platform-Stats" })
-```
+### Benefits
+1. **Wallet compatibility**: NFTs appear in Wander/ArConnect collectibles
+2. **Standard compliance**: Follows established AO token standards
+3. **Better discoverability**: Proper metadata for marketplaces
+4. **Enhanced UX**: Users can see their NFTs in wallet
 
-## Expected Results
+## Next Steps
 
-After successful deployment:
-- ✅ Upload should create real Creator NFTs
-- ✅ Purchase flows should work with real payments
-- ✅ Access control should validate against real NFTs
-- ✅ Platform fees should be collected to the platform wallet
-
-The CORS errors you saw will disappear once real process IDs are in place!
+1. **Test upload flow**: Upload a video and verify creator NFT creation
+2. **Test purchase flow**: Purchase access and verify access NFT creation
+3. **Monitor wallet display**: Check that NFTs appear in wallet collectibles
+4. **Test transfers**: Verify NFT transfer functionality
+5. **Monitor performance**: Check process logs for any issues

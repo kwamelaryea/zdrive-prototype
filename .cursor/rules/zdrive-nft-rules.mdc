@@ -1,0 +1,630 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Video Platform NFT Implementation with Time-Limited Access
+
+## Architecture Overview
+
+### NFT Types
+1. **Creator NFTs**: Distribution rights ownership
+2. **Basic Access NFTs**: Time-limited viewing rights (7-90 days)
+3. **Premium Access NFTs**: Permanent viewing rights
+4. **Free Content**: No NFT required
+
+## ANS-110 Compliance Structure
+
+### Required Handlers for All NFT Processes
+```lua
+-- ANS-110 Standard Handlers
+Handlers.add("Info", function(msg)
+    ao.send({
+        Target = msg.From,
+        Data = json.encode({
+            Name = Name,
+            Ticker = Ticker,
+            Description = Description,
+            Logo = Logo,
+            Denomination = Denomination or 0,
+            Supply = Supply,
+            Minted = Minted
+        })
+    })
+end)
+
+Handlers.add("Balance", function(msg)
+    local target = msg.Tags.Target or msg.From
+    local balance = Balances[target] or 0
+    ao.send({
+        Target = msg.From,
+        Data = tostring(balance)
+    })
+end)
+
+Handlers.add("Balances", function(msg)
+    ao.send({
+        Target = msg.From,
+        Data = json.encode(Balances)
+    })
+end)
+```
+
+## Creator NFT Process
+
+### Process Initialization
+```lua
+local json = require('json')
+
+-- Collection Info (ANS-110)
+Name = "Video Creator Rights"
+Ticker = "VCR"
+Description = "NFTs representing video distribution rights"
+Logo = "arweave_logo_tx_id"
+Denomination = 0
+Supply = 10000
+Minted = 0
+
+-- State
+Balances = {} -- address -> token_count
+CreatorNFTs = {} -- video_id -> nft_data
+VideoMetadata = {} -- video_id -> video_info
+```
+
+### Creator NFT Minting
+```lua
+Handlers.add("Create-Creator-NFT", function(msg)
+    local video_id = msg.Tags.VideoId
+    local creator = msg.From
+    local title = msg.Tags.Title
+    local description = msg.Tags.Description or ""
+    local thumbnail_tx = msg.Tags.ThumbnailTx
+    
+    -- Verify video doesn't already exist
+    if CreatorNFTs[video_id] then
+        ao.send({Target = creator, Data = "Video already exists"})
+        return
+    end
+    
+    local token_id = video_id .. "-creator"
+    
+    -- ANS-110 compliant metadata
+    local metadata = {
+        name = "Creator Rights - " .. title,
+        description = "Distribution rights for: " .. description,
+        image = thumbnail_tx,
+        video_id = video_id,
+        type = "creator_token",
+        royalty_rate = 0.10,
+        created_at = msg.Timestamp,
+        creator_original = creator,
+        attributes = {
+            {trait_type = "Content Type", value = "Video"},
+            {trait_type = "Rights Type", value = "Distribution"},
+            {trait_type = "Royalty Rate", value = "10%"}
+        }
+    }
+    
+    -- Create NFT record
+    CreatorNFTs[video_id] = {
+        token_id = token_id,
+        owner = creator,
+        video_id = video_id,
+        metadata = metadata
+    }
+    
+    -- Update balances
+    Balances[creator] = (Balances[creator] or 0) + 1
+    Minted = Minted + 1
+    
+    -- Store video metadata
+    VideoMetadata[video_id] = {
+        title = title,
+        description = description,
+        creator_original = creator,
+        creator_current = creator,
+        thumbnail_tx = thumbnail_tx,
+        created_at = msg.Timestamp
+    }
+    
+    -- Notify creator (for wallet display)
+    ao.send({
+        Target = creator,
+        Action = "Creator-NFT-Minted",
+        Data = json.encode({
+            TokenId = token_id,
+            VideoId = video_id,
+            Metadata = metadata
+        })
+    })
+end)
+```
+
+## Basic Access NFT Process (Time-Limited)
+
+### Process Initialization
+```lua
+local json = require('json')
+
+-- Collection Info (ANS-110)
+Name = "Video Basic Access"
+Ticker = "VBA"
+Description = "Time-limited video viewing rights"
+Logo = "arweave_logo_tx_id"
+Denomination = 0
+Supply = 100000
+Minted = 0
+
+-- State
+Balances = {} -- address -> token_count
+BasicAccessNFTs = {} -- token_id -> nft_data
+UserAccess = {} -- user_address -> {video_id -> access_info}
+AccessCounter = 0
+```
+
+### Time-Limited Access NFT Creation
+```lua
+Handlers.add("Create-Basic-Access-NFT", function(msg)
+    local video_id = msg.Tags.VideoId
+    local user = msg.From
+    local title = msg.Tags.Title
+    local duration_days = tonumber(msg.Tags.Duration or "30")
+    local current_time = tonumber(msg.Timestamp)
+    local expires_at = current_time + (duration_days * 24 * 60 * 60 * 1000)
+    
+    AccessCounter = AccessCounter + 1
+    local token_id = video_id .. "-basic-" .. AccessCounter
+    
+    -- ANS-110 compliant metadata
+    local metadata = {
+        name = "Basic Access - " .. title,
+        description = "Time-limited viewing rights (" .. duration_days .. " days)",
+        image = msg.Tags.ThumbnailTx,
+        video_id = video_id,
+        type = "basic_access_token",
+        tier = "basic",
+        purchased_at = current_time,
+        expires_at = expires_at,
+        duration_days = duration_days,
+        renewable = true,
+        attributes = {
+            {trait_type = "Access Type", value = "Time-Limited"},
+            {trait_type = "Duration", value = duration_days .. " days"},
+            {trait_type = "Tier", value = "Basic"},
+            {trait_type = "Renewable", value = "Yes"}
+        }
+    }
+    
+    -- Create NFT record
+    BasicAccessNFTs[token_id] = {
+        token_id = token_id,
+        owner = user,
+        video_id = video_id,
+        metadata = metadata
+    }
+    
+    -- Update user access
+    UserAccess[user] = UserAccess[user] or {}
+    UserAccess[user][video_id] = {
+        token_id = token_id,
+        expires_at = expires_at,
+        tier = "basic"
+    }
+    
+    -- Update balances
+    Balances[user] = (Balances[user] or 0) + 1
+    Minted = Minted + 1
+    
+    -- Notify user
+    ao.send({
+        Target = user,
+        Action = "Basic-Access-NFT-Minted",
+        Data = json.encode({
+            TokenId = token_id,
+            VideoId = video_id,
+            ExpiresAt = expires_at,
+            Metadata = metadata
+        })
+    })
+end)
+```
+
+### Access Verification with Time Check
+```lua
+Handlers.add("Verify-Basic-Access", function(msg)
+    local user = msg.From
+    local video_id = msg.Tags.VideoId
+    local current_time = tonumber(msg.Timestamp)
+    
+    -- Check if user has valid access
+    if UserAccess[user] and UserAccess[user][video_id] then
+        local access_info = UserAccess[user][video_id]
+        
+        -- Check expiration
+        if access_info.expires_at and current_time > access_info.expires_at then
+            ao.send({
+                Target = user,
+                Data = json.encode({
+                    access = false,
+                    reason = "expired",
+                    expired_at = access_info.expires_at,
+                    renewable = true
+                })
+            })
+            return
+        end
+        
+        -- Valid access
+        ao.send({
+            Target = user,
+            Data = json.encode({
+                access = true,
+                expires_at = access_info.expires_at,
+                time_remaining = access_info.expires_at - current_time
+            })
+        })
+    else
+        ao.send({
+            Target = user,
+            Data = json.encode({
+                access = false,
+                reason = "no_token"
+            })
+        })
+    end
+end)
+```
+
+### Access Renewal System
+```lua
+Handlers.add("Renew-Basic-Access", function(msg)
+    local user = msg.From
+    local token_id = msg.Tags.TokenId
+    local duration_days = tonumber(msg.Tags.Duration or "30")
+    local current_time = tonumber(msg.Timestamp)
+    
+    -- Verify ownership
+    if BasicAccessNFTs[token_id] and BasicAccessNFTs[token_id].owner == user then
+        local nft = BasicAccessNFTs[token_id]
+        local new_expires_at = current_time + (duration_days * 24 * 60 * 60 * 1000)
+        
+        -- Update expiration
+        nft.metadata.expires_at = new_expires_at
+        nft.metadata.renewed_at = current_time
+        
+        -- Update user access
+        UserAccess[user][nft.video_id].expires_at = new_expires_at
+        
+        ao.send({
+            Target = user,
+            Action = "Access-Renewed",
+            Data = json.encode({
+                TokenId = token_id,
+                NewExpiresAt = new_expires_at,
+                Duration = duration_days
+            })
+        })
+    else
+        ao.send({Target = user, Data = "Renewal failed - not token owner"})
+    end
+end)
+```
+
+## Premium Access NFT Process (Permanent)
+
+### Process Initialization
+```lua
+local json = require('json')
+
+-- Collection Info (ANS-110)
+Name = "Video Premium Access"
+Ticker = "VPA"
+Description = "Permanent video viewing rights"
+Logo = "arweave_logo_tx_id"
+Denomination = 0
+Supply = 100000
+Minted = 0
+
+-- State
+Balances = {} -- address -> token_count
+PremiumAccessNFTs = {} -- token_id -> nft_data
+UserAccess = {} -- user_address -> {video_id -> access_info}
+AccessCounter = 0
+```
+
+### Permanent Access NFT Creation
+```lua
+Handlers.add("Create-Premium-Access-NFT", function(msg)
+    local video_id = msg.Tags.VideoId
+    local user = msg.From
+    local title = msg.Tags.Title
+    local current_time = tonumber(msg.Timestamp)
+    
+    AccessCounter = AccessCounter + 1
+    local token_id = video_id .. "-premium-" .. AccessCounter
+    
+    -- ANS-110 compliant metadata
+    local metadata = {
+        name = "Premium Access - " .. title,
+        description = "Permanent viewing rights",
+        image = msg.Tags.ThumbnailTx,
+        video_id = video_id,
+        type = "premium_access_token",
+        tier = "premium",
+        purchased_at = current_time,
+        expires_at = nil,
+        permanent = true,
+        attributes = {
+            {trait_type = "Access Type", value = "Permanent"},
+            {trait_type = "Tier", value = "Premium"},
+            {trait_type = "Renewable", value = "N/A"}
+        }
+    }
+    
+    -- Create NFT record
+    PremiumAccessNFTs[token_id] = {
+        token_id = token_id,
+        owner = user,
+        video_id = video_id,
+        metadata = metadata
+    }
+    
+    -- Update user access
+    UserAccess[user] = UserAccess[user] or {}
+    UserAccess[user][video_id] = {
+        token_id = token_id,
+        expires_at = nil,
+        tier = "premium",
+        permanent = true
+    }
+    
+    -- Update balances
+    Balances[user] = (Balances[user] or 0) + 1
+    Minted = Minted + 1
+    
+    -- Notify user
+    ao.send({
+        Target = user,
+        Action = "Premium-Access-NFT-Minted",
+        Data = json.encode({
+            TokenId = token_id,
+            VideoId = video_id,
+            Metadata = metadata
+        })
+    })
+end)
+```
+
+## ANS-110 Transfer Handler
+
+### Universal Transfer Handler
+```lua
+Handlers.add("Transfer", function(msg)
+    local from = msg.From
+    local to = msg.Tags.Recipient
+    local token_id = msg.Tags.TokenId
+    local current_time = tonumber(msg.Timestamp)
+    
+    -- Determine NFT type and process transfer
+    if CreatorNFTs[token_id:match("(.+)-creator")] then
+        -- Creator NFT Transfer
+        local video_id = token_id:match("(.+)-creator")
+        local nft = CreatorNFTs[video_id]
+        
+        if nft.owner == from then
+            -- Update ownership
+            nft.owner = to
+            VideoMetadata[video_id].creator_current = to
+            
+            -- Update balances
+            Balances[from] = Balances[from] - 1
+            Balances[to] = (Balances[to] or 0) + 1
+            
+            -- Notify both parties
+            ao.send({Target = from, Action = "Transfer-Success", TokenId = token_id})
+            ao.send({Target = to, Action = "Transfer-Received", TokenId = token_id})
+        end
+        
+    elseif BasicAccessNFTs[token_id] then
+        -- Basic Access NFT Transfer
+        local nft = BasicAccessNFTs[token_id]
+        
+        if nft.owner == from then
+            -- Check if expired
+            if nft.metadata.expires_at and current_time > nft.metadata.expires_at then
+                ao.send({Target = from, Data = "Cannot transfer expired access NFT"})
+                return
+            end
+            
+            -- Transfer with remaining time
+            nft.owner = to
+            
+            -- Update user access
+            UserAccess[from][nft.video_id] = nil
+            UserAccess[to] = UserAccess[to] or {}
+            UserAccess[to][nft.video_id] = {
+                token_id = token_id,
+                expires_at = nft.metadata.expires_at,
+                tier = "basic"
+            }
+            
+            -- Update balances
+            Balances[from] = Balances[from] - 1
+            Balances[to] = (Balances[to] or 0) + 1
+            
+            -- Calculate royalty if this is a sale
+            if msg.Tags.Price then
+                local sale_price = tonumber(msg.Tags.Price)
+                local royalty = sale_price * 0.10
+                local original_creator = nft.metadata.creator_original
+                
+                -- Send royalty to original creator
+                ao.send({
+                    Target = "TOKEN_PROCESS_ID",
+                    Action = "Transfer",
+                    Recipient = original_creator,
+                    Quantity = tostring(royalty),
+                    Tags = {
+                        {name = "Royalty-Payment", value = token_id}
+                    }
+                })
+            end
+            
+            -- Notify parties
+            ao.send({Target = from, Action = "Transfer-Success", TokenId = token_id})
+            ao.send({Target = to, Action = "Transfer-Received", TokenId = token_id})
+        end
+        
+    elseif PremiumAccessNFTs[token_id] then
+        -- Premium Access NFT Transfer
+        local nft = PremiumAccessNFTs[token_id]
+        
+        if nft.owner == from then
+            -- Transfer permanent access
+            nft.owner = to
+            
+            -- Update user access
+            UserAccess[from][nft.video_id] = nil
+            UserAccess[to] = UserAccess[to] or {}
+            UserAccess[to][nft.video_id] = {
+                token_id = token_id,
+                expires_at = nil,
+                tier = "premium",
+                permanent = true
+            }
+            
+            -- Update balances
+            Balances[from] = Balances[from] - 1
+            Balances[to] = (Balances[to] or 0) + 1
+            
+            -- Handle royalty if sale
+            if msg.Tags.Price then
+                local sale_price = tonumber(msg.Tags.Price)
+                local royalty = sale_price * 0.10
+                local original_creator = nft.metadata.creator_original
+                
+                ao.send({
+                    Target = "TOKEN_PROCESS_ID",
+                    Action = "Transfer",
+                    Recipient = original_creator,
+                    Quantity = tostring(royalty),
+                    Tags = {
+                        {name = "Royalty-Payment", value = token_id}
+                    }
+                })
+            end
+            
+            -- Notify parties
+            ao.send({Target = from, Action = "Transfer-Success", TokenId = token_id})
+            ao.send({Target = to, Action = "Transfer-Received", TokenId = token_id})
+        end
+    end
+end)
+```
+
+## Frontend Integration
+
+### Purchase with Duration Selection
+```javascript
+// Purchase Basic Access with time duration
+const purchaseBasicAccess = async (videoId, duration = 30) => {
+    const durationPricing = {
+        7: 0.99,
+        30: 2.99,
+        90: 6.99
+    };
+    
+    const price = durationPricing[duration];
+    
+    await message({
+        process: BASIC_ACCESS_PROCESS_ID,
+        tags: [
+            { name: "Action", value: "Purchase-Basic-Access" },
+            { name: "Video-ID", value: videoId },
+            { name: "Duration", value: duration.toString() },
+            { name: "Price", value: price.toString() }
+        ]
+    });
+};
+
+// Check access status with expiration
+const checkAccessStatus = async (videoId) => {
+    const result = await dryrun({
+        process: BASIC_ACCESS_PROCESS_ID,
+        tags: [
+            { name: "Action", value: "Verify-Basic-Access" },
+            { name: "Video-ID", value: videoId }
+        ]
+    });
+    
+    return JSON.parse(result.Messages[0].Data);
+};
+
+// Renew expired access
+const renewAccess = async (tokenId, duration = 30) => {
+    await message({
+        process: BASIC_ACCESS_PROCESS_ID,
+        tags: [
+            { name: "Action", value: "Renew-Basic-Access" },
+            { name: "Token-ID", value: tokenId },
+            { name: "Duration", value: duration.toString() }
+        ]
+    });
+};
+```
+
+### Wallet Integration for ANS-110
+```javascript
+// Get user's NFT collection (ANS-110 compliant)
+const getUserNFTs = async (address) => {
+    const processes = [
+        CREATOR_NFT_PROCESS_ID,
+        BASIC_ACCESS_PROCESS_ID,
+        PREMIUM_ACCESS_PROCESS_ID
+    ];
+    
+    const allNFTs = [];
+    
+    for (const processId of processes) {
+        const result = await dryrun({
+            process: processId,
+            tags: [
+                { name: "Action", value: "Balance" },
+                { name: "Target", value: address }
+            ]
+        });
+        
+        const balance = parseInt(result.Messages[0].Data);
+        if (balance > 0) {
+            // Get collection info
+            const infoResult = await dryrun({
+                process: processId,
+                tags: [{ name: "Action", value: "Info" }]
+            });
+            
+            const collectionInfo = JSON.parse(infoResult.Messages[0].Data);
+            allNFTs.push({
+                process: processId,
+                collection: collectionInfo,
+                balance: balance
+            });
+        }
+    }
+    
+    return allNFTs;
+};
+```
+
+## Implementation Summary
+
+This implementation provides:
+
+1. **ANS-110 Compliance**: All NFT processes follow the standard for wallet compatibility
+2. **Time-Limited Access**: Basic tier NFTs expire and can be renewed
+3. **Permanent Access**: Premium tier NFTs never expire
+4. **Creator Rights**: Distribution rights can be transferred
+5. **Royalty System**: 10% royalties on Access NFT resales
+6. **Flexible Duration**: Multiple time periods for Basic access
+7. **Renewal System**: Expired access can be renewed at discounted rates
+
+The system maintains compatibility with ArConnect/Wander wallets while providing sophisticated access control and monetization features.

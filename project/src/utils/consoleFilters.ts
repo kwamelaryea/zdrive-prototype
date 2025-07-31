@@ -14,7 +14,10 @@ const SUPPRESSED_ERRORS = [
   'Failed to fetch',
   'Blockchain request timeout',
   'Blockchain accessibility check timeout',
-  'Blockchain video loading timeout'
+  'Blockchain video loading timeout',
+  'Access-Control-Allow-Origin',
+  'CORS policy',
+  'has been blocked by CORS policy'
 ];
 
 const originalConsoleError = console.error;

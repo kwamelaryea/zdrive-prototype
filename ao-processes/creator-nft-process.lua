@@ -17,6 +17,17 @@ Denomination = 0 -- NFTs are non-divisible
 Supply = 100000 -- Maximum possible supply
 Minted = 0 -- Current minted count
 
+-- Token Protocol Tags (for wallet recognition)
+-- These tags should be included in the spawn transaction:
+-- { name: 'Variant', value: 'ao.TKN' }
+-- { name: 'Type', value: 'Process' }
+-- { name: 'Token-Name', value: 'ZDrive Creator Rights' }
+-- { name: 'Token-Symbol', value: 'ZCR' }
+-- { name: 'Token-Decimals', value: '0' }
+-- { name: 'Token-Total-Supply', value: '100000' }
+-- { name: 'Implements', value: 'ANS-110' }
+-- { name: 'Data-Protocol', value: 'ao' }
+
 -- Enhanced Process State
 Balances = {} -- address -> token_count
 AllTokens = {} -- token_id -> complete_nft_data

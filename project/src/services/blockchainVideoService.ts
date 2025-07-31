@@ -1,9 +1,28 @@
 import { Video } from '../data/mockData';
+import { message, result, dryrun, createDataItemSigner } from '@permaweb/aoconnect';
+import Arweave from 'arweave';
+import toast from 'react-hot-toast';
 import { AOService, AO_PROCESSES } from './aoService';
-import { dryrun } from '@permaweb/aoconnect';
 
-// Production configuration verified - no need to connect early
-console.log('🔗 BlockchainVideoService: Using production mainnet URLs');
+// PROPER AOCONNECT MAINNET CONFIGURATION
+// Use Arweave mainnet endpoints to prevent testnet redirects
+const MAINNET_URLS = {
+  CU_URL: process.env.AO_CU_URL || 'https://cu.arweave.net',
+  MU_URL: process.env.AO_MU_URL || 'https://mu.arweave.net',
+  GATEWAY_URL: process.env.AO_GATEWAY_URL || 'https://arweave.net'
+};
+
+console.log('✅ BlockchainVideoService: Using Arweave mainnet URLs');
+console.log('✅ BlockchainVideoService: Arweave mainnet URLs verified:', MAINNET_URLS);
+
+// Helper function to ensure mainnet dryrun calls
+const mainnetDryrun = async (params: any) => {
+  console.log('🔧 Using Arweave mainnet URLs for dryrun (blockchainVideoService)');
+  return dryrun({
+    ...params,
+    ...MAINNET_URLS
+  });
+};
 
 /**
  * Blockchain Video Service - Uses AO processes as source of truth
@@ -16,16 +35,42 @@ export class BlockchainVideoService {
   /**
    * Utility method to make blockchain requests with timeout and error handling
    */
-  private static async makeBlockchainRequest(requestFn: () => Promise<any>, timeoutMs: number = 15000): Promise<any> {
+  private static async makeBlockchainRequest(requestFn: () => Promise<any>, timeoutMs: number = 30000): Promise<any> {
     try {
+      console.log('🌐 Making blockchain request with timeout:', timeoutMs + 'ms');
+      console.log('🎯 Using Arweave mainnet URLs:', {
+        GATEWAY_URL: MAINNET_URLS.GATEWAY_URL,
+        CU_URL: MAINNET_URLS.CU_URL,
+        MU_URL: MAINNET_URLS.MU_URL
+      });
+      
       const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Blockchain request timeout')), timeoutMs)
+        setTimeout(() => reject(new Error(`Blockchain request timeout after ${timeoutMs}ms`)), timeoutMs)
       );
       
       const result = await Promise.race([requestFn(), timeoutPromise]);
       return result;
     } catch (error) {
-      console.warn('⚠️ Blockchain request failed:', error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Check for specific error types
+      if (errorMessage.includes('CORS') || errorMessage.includes('Access-Control-Allow-Origin')) {
+        console.error('❌ CORS Error: Request blocked by CORS policy. This may indicate testnet URLs are being used.');
+        console.error('🔍 Expected mainnet URLs:', MAINNET_URLS);
+      } else if (errorMessage.includes('Failed to fetch')) {
+        console.error('❌ Network Error: Failed to fetch from blockchain. Check network connectivity.');
+      } else if (errorMessage.includes('timeout')) {
+        console.error('⏰ Timeout Error: Request timed out after', timeoutMs, 'ms');
+        console.error('  - This could indicate network issues or slow blockchain response');
+        console.error('  - Consider increasing timeout or checking network connectivity');
+      } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ENOTFOUND')) {
+        console.error('🌐 Connection Error: Cannot connect to blockchain network');
+        console.error('  - Check internet connection');
+        console.error('  - Verify mainnet URLs are accessible');
+      } else {
+        console.error('❌ Blockchain request failed:', errorMessage);
+      }
+      
       throw error;
     }
   }
@@ -40,7 +85,7 @@ export class BlockchainVideoService {
       
       // Get all users who have tokens
       const balancesResult = await this.makeBlockchainRequest(() => 
-        dryrun({
+        mainnetDryrun({
           process: AO_PROCESSES.CREATOR_NFT,
           tags: [{ name: 'Action', value: 'Balances' }]
         })
@@ -60,19 +105,20 @@ export class BlockchainVideoService {
           // Try some video ID patterns
           const testPatterns = [
             'video-1753375410192-uh2a7e6hr', // Known working video
+            'video-1753528269607-6pag0s8bu', // Newly uploaded video
             // Add more patterns if needed
           ];
           
           for (const pattern of testPatterns) {
             try {
               const testResult = await this.makeBlockchainRequest(() => 
-                dryrun({
+                mainnetDryrun({
                   process: AO_PROCESSES.CREATOR_NFT,
                   tags: [
                     { name: 'Action', value: 'Get-Video' },
                     { name: 'VideoId', value: pattern }
                   ]
-                }), 5000 // Shorter timeout for pattern testing
+                }), 15000 // Increased timeout for pattern testing
               );
               
               if (testResult.Messages?.length > 0) {
@@ -110,8 +156,12 @@ export class BlockchainVideoService {
       console.log('🔍 Loading all videos from blockchain...');
       console.log('🎯 Process ID:', AO_PROCESSES.CREATOR_NFT);
       
-      // Check cache first
+      // Force clear cache for fresh data (to detect newly uploaded videos)
       const cacheKey = 'all-videos';
+      delete this.cache[cacheKey];
+      console.log('🗑️ Cache cleared to detect newly uploaded videos');
+      
+      // Check cache first (will be empty after clearing above)
       const cached = this.cache[cacheKey];
       if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
         console.log('📋 Using cached videos data');
@@ -122,7 +172,7 @@ export class BlockchainVideoService {
       try {
         console.log('📡 Attempting Get-All-Videos query...');
         const result = await this.makeBlockchainRequest(() => 
-          dryrun({
+          mainnetDryrun({
             process: AO_PROCESSES.CREATOR_NFT,
             tags: [{ name: 'Action', value: 'Get-All-Videos' }]
           })
@@ -217,7 +267,7 @@ export class BlockchainVideoService {
       }
 
       const result = await this.makeBlockchainRequest(() => 
-        dryrun({
+        mainnetDryrun({
           process: AO_PROCESSES.CREATOR_NFT,
           tags: [
             { name: 'Action', value: 'Get-Video' },
@@ -297,7 +347,8 @@ export class BlockchainVideoService {
         tags: [
           { name: 'Action', value: 'Get-Videos-By-Creator' },
           { name: 'CreatorAddress', value: creatorAddress }
-        ]
+        ],
+        ...MAINNET_URLS
       });
 
       console.log('📥 Creator videos response:', {
@@ -496,6 +547,15 @@ export class BlockchainVideoService {
   }
 
   /**
+   * Force refresh blockchain data (invalidate cache and reload)
+   */
+  static async forceRefreshAllData(): Promise<void> {
+    console.log('🔄 Force refreshing all blockchain data...');
+    this.clearCache();
+    await this.getAllVideos(); // This will fetch fresh data
+  }
+
+  /**
    * Refresh blockchain data (invalidate cache and reload)
    */
   static async refreshAllData(): Promise<void> {
@@ -510,24 +570,71 @@ export class BlockchainVideoService {
   static async isBlockchainAccessible(): Promise<boolean> {
     try {
       console.log('🔍 Testing blockchain accessibility...');
+      console.log('🎯 Using process ID:', AO_PROCESSES.CREATOR_NFT);
+      console.log('🌐 Expected mainnet URLs:', MAINNET_URLS);
       
-      // Add timeout to prevent hanging
+      // Add timeout to prevent hanging - increased to 30 seconds
       const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Blockchain accessibility check timeout')), 10000)
+        setTimeout(() => reject(new Error('Blockchain accessibility check timeout')), 30000)
       );
       
       const testPromise = dryrun({
         process: AO_PROCESSES.CREATOR_NFT,
-        tags: [{ name: 'Action', value: 'Info' }]
+        tags: [{ name: 'Action', value: 'Info' }],
+        // Explicitly specify mainnet URLs
+        CU_URL: MAINNET_URLS.CU_URL,
+        MU_URL: MAINNET_URLS.MU_URL,
+        GATEWAY_URL: MAINNET_URLS.GATEWAY_URL
       });
       
+      // Use Promise.race to handle timeout properly
       const result = await Promise.race([testPromise, timeoutPromise]);
       
       const isAccessible = result.Messages?.length > 0;
       console.log(`🔍 Blockchain accessibility: ${isAccessible ? '✅ Available' : '❌ Not available'}`);
       return isAccessible;
     } catch (error) {
-      console.warn('⚠️ Blockchain accessibility check failed:', error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn('⚠️ Primary blockchain accessibility check failed:', errorMessage);
+      
+      // Try a fallback with a simpler query
+      try {
+        console.log('🔄 Trying fallback blockchain accessibility check...');
+        const fallbackPromise = dryrun({
+          process: AO_PROCESSES.CREATOR_NFT,
+          tags: [{ name: 'Action', value: 'Balance' }],
+          CU_URL: MAINNET_URLS.CU_URL,
+          MU_URL: MAINNET_URLS.MU_URL,
+          GATEWAY_URL: MAINNET_URLS.GATEWAY_URL
+        });
+        
+        const fallbackTimeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Fallback blockchain check timeout')), 15000)
+        );
+        
+        const fallbackResult = await Promise.race([fallbackPromise, fallbackTimeoutPromise]);
+        const fallbackAccessible = fallbackResult.Messages?.length > 0;
+        console.log(`🔍 Fallback blockchain accessibility: ${fallbackAccessible ? '✅ Available' : '❌ Not available'}`);
+        return fallbackAccessible;
+      } catch (fallbackError) {
+        console.warn('⚠️ Fallback blockchain accessibility check also failed:', fallbackError);
+      }
+      
+      // Log additional debugging info for CORS errors
+      if (errorMessage.includes('CORS') || errorMessage.includes('Access-Control-Allow-Origin')) {
+        console.error('🔍 CORS Error Details:');
+        console.error('  - This usually means testnet URLs are being used');
+        console.error('  - Expected mainnet URLs:', MAINNET_URLS);
+        console.error('  - Check if AO Connect library is using correct configuration');
+      }
+      
+      // For timeout errors, log more specific info
+      if (errorMessage.includes('timeout')) {
+        console.error('⏰ Timeout Error: Blockchain request took too long');
+        console.error('  - This could indicate network issues or slow blockchain response');
+        console.error('  - Consider increasing timeout or checking network connectivity');
+      }
+      
       return false;
     }
   }

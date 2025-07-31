@@ -1,5 +1,5 @@
 -- Basic Access NFT Process - ANS-110 Compliant
--- Handles time-limited video viewing rights (7-90 days)
+-- Handles time-limited video viewing rights
 
 local json = require('json')
 
@@ -17,12 +17,24 @@ Denomination = 0
 Supply = 1000000
 Minted = 0
 
+-- Token Protocol Tags (for wallet recognition)
+-- These tags should be included in the spawn transaction:
+-- { name: 'Variant', value: 'ao.TKN' }
+-- { name: 'Type', value: 'Process' }
+-- { name: 'Token-Name', value: 'ZDrive Basic Access' }
+-- { name: 'Token-Symbol', value: 'ZBA' }
+-- { name: 'Token-Decimals', value: '0' }
+-- { name: 'Token-Total-Supply', value: '1000000' }
+-- { name: 'Implements', value: 'ANS-110' }
+-- { name: 'Data-Protocol', value: 'ao' }
+
 -- Process State
 Balances = {} -- address -> token_count
 BasicAccessNFTs = {} -- token_id -> nft_data
 UserAccess = {} -- user_address -> {video_id -> access_info}
 TokenCounter = 0
 RevenueSummary = {} -- video_id -> revenue_data
+TransferHistory = {} -- token_id -> transfer_record[]
 
 -- External Process IDs (to be set)
 CREATOR_NFT_PROCESS = "Lk-5IzUn46w7d0BliSvR9Yo4jazeEZ1kxt54F2SlpPc"  -- Replace with actual Creator NFT process ID after deploying it

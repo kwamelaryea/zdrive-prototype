@@ -1,0 +1,39 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Video Streaming Platform - NFT-Gated Content System
+Product Requirements Document (PRD)
+Overview
+Transform your existing video streaming platform into a decentralized content marketplace using NFT-based ownership and rental models on AO/Arweave infrastructure.
+Business Model
+
+Premium Buy & Own: $2.99 typical, permanent access via NFT
+Time-Limited Rental: $0.99-$2.99, 7-30 day access periods
+Free Content: Audience building tier
+Revenue Split: 90% creator, 10% platform
+Upload Fee: 1% platform fee on content upload
+Royalties: 10% creator royalties on user NFT resales
+
+Core Features
+Content Monetization
+
+Dual NFT System: Creator tokens (distribution rights) + User tokens (access rights)
+Flexible Pricing: Creators set buy/rent prices or offer free content
+Automatic Revenue Distribution: Smart contract handles all payments
+Royalty System: Perpetual 10% creator earnings on secondary sales
+
+Access Control
+
+NFT-Gated Viewing: User must hold valid NFT to access content
+Time-Based Access: Rental NFTs expire automatically
+Wallet Integration: ArConnect/Wander wallet compatibility
+Collectibles Display: NFTs visible in wallet collectibles section
+
+Creator Tools
+
+Simple Upload Flow: Video → Pricing → Mint Creator NFT
+Revenue Dashboard: Real-time earnings tracking
+Content Management: Edit pricing, view analytics
+Token Transfer: Ability to sell creator rights

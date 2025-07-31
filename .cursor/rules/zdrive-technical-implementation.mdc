@@ -1,0 +1,512 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Video Streaming Platform - NFT-Gated Content System (ANS-110 Compliant)
+
+## Technical Implementation Document
+
+### Architecture Overview
+```
+Frontend (React/Next.js) ↔ AO Smart Contract ↔ Arweave Storage
+                ↓
+         ArConnect/Wander Wallet
+```
+
+### ANS-110 Compliant Smart Contract Structure (AO/Lua)
+
+#### Core Data Models Following ANS-110 Standard
+
+```lua
+-- ANS-110 Compliant Token Registry
+Tokens = {
+  [tokenId] = {
+    -- Required ANS-110 fields
+    Name = "string",
+    Ticker = "string", 
+    Logo = "arweave_tx_id",
+    Denomination = 0, -- NFTs are non-divisible
+    
+    -- Custom fields for our platform
+    ContentId = "string",
+    ContentType = "creator" | "access",
+    Creator = "wallet_address",
+    Owner = "wallet_address",
+    ArweaveId = "tx_id", -- Content storage reference
+    
+    -- Access-specific fields
+    AccessType = "buy" | "rent" | nil, -- nil for creator tokens
+    ExpiresAt = timestamp | nil,
+    PurchasePrice = number,
+    
+    -- Creator-specific fields
+    OriginalCreator = "wallet_address",
+    
+    -- Metadata
+    CreatedAt = timestamp,
+    LastTransfer = timestamp
+  }
+}
+
+-- ANS-110 Compliant Balances
+Balances = {
+  [wallet_address] = {
+    [tokenId] = 1 -- NFTs always have balance of 1 or 0
+  }
+}
+
+-- Content Registry (separate from tokens)
+Contents = {
+  [contentId] = {
+    title = "string",
+    description = "string",
+    creator = "wallet_address",
+    creatorTokenId = "token_id",
+    arweaveId = "tx_id",
+    metadataId = "arweave_tx_id",
+    buyPrice = number,
+    rentPrice = number,
+    rentDuration = number,
+    isFree = boolean,
+    uploadFee = number,
+    totalEarnings = number,
+    createdAt = timestamp,
+    tags = {"tag1", "tag2"}
+  }
+}
+
+-- ANS-110 Transfer Records
+Transfers = {
+  [transferId] = {
+    From = "wallet_address",
+    To = "wallet_address",
+    TokenId = "token_id",
+    Quantity = 1,
+    Timestamp = timestamp,
+    BlockHeight = number,
+    TransactionId = "tx_id"
+  }
+}
+```
+
+#### ANS-110 Required Handler Functions
+
+**Standard Token Information**
+```lua
+-- ANS-110 Required: Get token info
+Handlers.add("Info", "Info", function(msg)
+  ao.send({
+    Target = msg.From,
+    Data = json.encode({
+      Name = "StreamNFT",
+      Ticker = "STREAM",
+      Logo = "arweave_logo_tx_id",
+      Denomination = 0
+    })
+  })
+end)
+
+-- ANS-110 Required: Get balance
+Handlers.add("Balance", "Balance", function(msg)
+  local target = msg.Tags.Target or msg.From
+  local balance = 0
+  
+  if Balances[target] then
+    for tokenId, amount in pairs(Balances[target]) do
+      balance = balance + amount
+    end
+  end
+  
+  ao.send({
+    Target = msg.From,
+    Data = tostring(balance)
+  })
+end)
+
+-- ANS-110 Required: Get balances (all tokens for address)
+Handlers.add("Balances", "Balances", function(msg)
+  local target = msg.Tags.Target or msg.From
+  local balances = Balances[target] or {}
+  
+  ao.send({
+    Target = msg.From,
+    Data = json.encode(balances)
+  })
+end)
+```
+
+**ANS-110 Transfer Function**
+```lua
+Handlers.add("Transfer", "Transfer", function(msg)
+  local from = msg.From
+  local to = msg.Tags.Recipient
+  local tokenId = msg.Tags.TokenId
+  local quantity = tonumber(msg.Tags.Quantity) or 1
+  
+  -- Validate transfer
+  assert(to, "Recipient required")
+  assert(tokenId, "TokenId required")
+  assert(Tokens[tokenId], "Token does not exist")
+  assert(Balances[from] and Balances[from][tokenId] >= quantity, "Insufficient balance")
+  
+  -- Check if token is transferable (rental tokens might have restrictions)
+  local token = Tokens[tokenId]
+  if token.AccessType == "rent" and token.ExpiresAt and token.ExpiresAt < os.time() then
+    error("Cannot transfer expired rental token")
+  end
+  
+  -- Execute transfer
+  Balances[from][tokenId] = Balances[from][tokenId] - quantity
+  if Balances[from][tokenId] == 0 then
+    Balances[from][tokenId] = nil
+  end
+  
+  Balances[to] = Balances[to] or {}
+  Balances[to][tokenId] = (Balances[to][tokenId] or 0) + quantity
+  
+  -- Update token owner
+  Tokens[tokenId].Owner = to
+  Tokens[tokenId].LastTransfer = os.time()
+  
+  -- Record transfer
+  local transferId = generateId()
+  Transfers[transferId] = {
+    From = from,
+    To = to,
+    TokenId = tokenId,
+    Quantity = quantity,
+    Timestamp = os.time(),
+    TransactionId = msg.Id
+  }
+  
+  -- Handle royalties for creator tokens
+  if token.ContentType == "creator" then
+    handleCreatorTokenTransfer(tokenId, from, to)
+  elseif token.ContentType == "access" then
+    handleAccessTokenTransfer(tokenId, from, to, msg.Tags.Price)
+  end
+  
+  -- ANS-110 Required: Send debit/credit notices
+  ao.send({
+    Target = from,
+    Action = "Debit-Notice",
+    Data = json.encode({
+      TokenId = tokenId,
+      Quantity = quantity,
+      Recipient = to
+    })
+  })
+  
+  ao.send({
+    Target = to,
+    Action = "Credit-Notice", 
+    Data = json.encode({
+      TokenId = tokenId,
+      Quantity = quantity,
+      Sender = from
+    })
+  })
+end)
+```
+
+#### Platform-Specific Functions
+
+**Content Upload & Creator Token Minting**
+```lua
+Handlers.add("Upload-Content", "Upload-Content", function(msg)
+  local creator = msg.From
+  local title = msg.Tags.Title
+  local description = msg.Tags.Description
+  local arweaveId = msg.Tags.ArweaveId
+  local buyPrice = tonumber(msg.Tags.BuyPrice) or 0
+  local rentPrice = tonumber(msg.Tags.RentPrice) or 0
+  local rentDuration = tonumber(msg.Tags.RentDuration) or 7
+  local isFree = msg.Tags.IsFree == "true"
+  
+  -- Calculate upload fee (1%)
+  local uploadFee = (buyPrice + rentPrice) * 0.01
+  
+  -- Generate IDs
+  local contentId = generateId()
+  local creatorTokenId = generateId()
+  
+  -- Create ANS-110 compliant creator token
+  Tokens[creatorTokenId] = {
+    Name = "Creator Rights - " .. title,
+    Ticker = "CR-" .. contentId:sub(1,6),
+    Logo = arweaveId, -- Use content thumbnail
+    Denomination = 0,
+    
+    ContentId = contentId,
+    ContentType = "creator",
+    Creator = creator,
+    Owner = creator,
+    ArweaveId = arweaveId,
+    OriginalCreator = creator,
+    CreatedAt = os.time(),
+    LastTransfer = os.time()
+  }
+  
+  -- Set creator token balance
+  Balances[creator] = Balances[creator] or {}
+  Balances[creator][creatorTokenId] = 1
+  
+  -- Create content record
+  Contents[contentId] = {
+    title = title,
+    description = description,
+    creator = creator,
+    creatorTokenId = creatorTokenId,
+    arweaveId = arweaveId,
+    buyPrice = buyPrice,
+    rentPrice = rentPrice,
+    rentDuration = rentDuration,
+    isFree = isFree,
+    uploadFee = uploadFee,
+    totalEarnings = 0,
+    createdAt = os.time(),
+    tags = json.decode(msg.Tags.Tags or "[]")
+  }
+  
+  ao.send({
+    Target = creator,
+    Action = "Content-Uploaded",
+    Data = json.encode({
+      ContentId = contentId,
+      CreatorTokenId = creatorTokenId,
+      UploadFee = uploadFee
+    })
+  })
+end)
+```
+
+**Access Token Purchase (ANS-110 Compliant)**
+```lua
+Handlers.add("Purchase-Access", "Purchase-Access", function(msg)
+  local buyer = msg.From
+  local contentId = msg.Tags.ContentId
+  local accessType = msg.Tags.AccessType -- "buy" or "rent"
+  local duration = tonumber(msg.Tags.Duration) or 30
+  
+  assert(Contents[contentId], "Content not found")
+  
+  local content = Contents[contentId]
+  local price = accessType == "buy" and content.buyPrice or content.rentPrice
+  
+  -- Calculate revenue split
+  local platformFee = price * 0.10
+  local creatorShare = price * 0.90
+  
+  -- Generate access token ID
+  local accessTokenId = generateId()
+  local expiresAt = accessType == "rent" and (os.time() + (duration * 24 * 60 * 60)) or nil
+  
+  -- Create ANS-110 compliant access token
+  Tokens[accessTokenId] = {
+    Name = "Access Pass - " .. content.title,
+    Ticker = "AP-" .. contentId:sub(1,6),
+    Logo = content.arweaveId,
+    Denomination = 0,
+    
+    ContentId = contentId,
+    ContentType = "access",
+    Creator = content.creator,
+    Owner = buyer,
+    ArweaveId = content.arweaveId,
+    AccessType = accessType,
+    ExpiresAt = expiresAt,
+    PurchasePrice = price,
+    CreatedAt = os.time(),
+    LastTransfer = os.time()
+  }
+  
+  -- Set access token balance
+  Balances[buyer] = Balances[buyer] or {}
+  Balances[buyer][accessTokenId] = 1
+  
+  -- Get current creator token holder for revenue distribution
+  local creatorTokenId = content.creatorTokenId
+  local currentCreatorTokenOwner = Tokens[creatorTokenId].Owner
+  
+  -- Update earnings
+  Contents[contentId].totalEarnings = Contents[contentId].totalEarnings + price
+  
+  -- Send notifications
+  ao.send({
+    Target = buyer,
+    Action = "Access-Granted",
+    Data = json.encode({
+      AccessTokenId = accessTokenId,
+      ContentId = contentId,
+      AccessType = accessType,
+      ExpiresAt = expiresAt
+    })
+  })
+  
+  ao.send({
+    Target = currentCreatorTokenOwner,
+    Action = "Revenue-Earned",
+    Data = json.encode({
+      ContentId = contentId,
+      Amount = creatorShare,
+      Buyer = buyer
+    })
+  })
+end)
+```
+
+**Access Validation**
+```lua
+Handlers.add("Validate-Access", "Validate-Access", function(msg)
+  local user = msg.From
+  local contentId = msg.Tags.ContentId
+  
+  local hasAccess = false
+  local accessDetails = {}
+  
+  -- Check user's token balances
+  if Balances[user] then
+    for tokenId, balance in pairs(Balances[user]) do
+      if balance > 0 then
+        local token = Tokens[tokenId]
+        if token and token.ContentId == contentId and token.ContentType == "access" then
+          -- Check if rental token is expired
+          if token.AccessType == "rent" and token.ExpiresAt and token.ExpiresAt < os.time() then
+            -- Token expired, remove from balance
+            Balances[user][tokenId] = nil
+          else
+            hasAccess = true
+            accessDetails = {
+              TokenId = tokenId,
+              AccessType = token.AccessType,
+              ExpiresAt = token.ExpiresAt,
+              PurchasePrice = token.PurchasePrice
+            }
+            break
+          end
+        end
+      end
+    end
+  end
+  
+  ao.send({
+    Target = user,
+    Action = "Access-Validation",
+    Data = json.encode({
+      HasAccess = hasAccess,
+      Details = accessDetails
+    })
+  })
+end)
+```
+
+**ANS-110 Token Details**
+```lua
+Handlers.add("Token-Info", "Token-Info", function(msg)
+  local tokenId = msg.Tags.TokenId
+  
+  if not Tokens[tokenId] then
+    ao.send({
+      Target = msg.From,
+      Action = "Error",
+      Data = "Token not found"
+    })
+    return
+  end
+  
+  local token = Tokens[tokenId]
+  
+  ao.send({
+    Target = msg.From,
+    Action = "Token-Info",
+    Data = json.encode({
+      TokenId = tokenId,
+      Name = token.Name,
+      Ticker = token.Ticker,
+      Logo = token.Logo,
+      Denomination = token.Denomination,
+      Owner = token.Owner,
+      ContentId = token.ContentId,
+      ContentType = token.ContentType,
+      AccessType = token.AccessType,
+      ExpiresAt = token.ExpiresAt,
+      CreatedAt = token.CreatedAt
+    })
+  })
+end)
+```
+
+**Royalty Handling for Secondary Sales**
+```lua
+function handleAccessTokenTransfer(tokenId, from, to, salePrice)
+  if not salePrice then return end
+  
+  local token = Tokens[tokenId]
+  local contentId = token.ContentId
+  local content = Contents[contentId]
+  
+  -- Get current creator token holder
+  local creatorTokenId = content.creatorTokenId
+  local currentCreatorOwner = Tokens[creatorTokenId].Owner
+  
+  -- Calculate 10% royalty
+  local royalty = tonumber(salePrice) * 0.10
+  
+  -- Send royalty notification
+  ao.send({
+    Target = currentCreatorOwner,
+    Action = "Royalty-Earned",
+    Data = json.encode({
+      ContentId = contentId,
+      TokenId = tokenId,
+      Amount = royalty,
+      Seller = from,
+      Buyer = to
+    })
+  })
+end
+```
+
+### Frontend Integration Updates
+
+**ANS-110 Token Queries**
+```javascript
+// Get user's NFT collection
+const getUserTokens = async (walletAddress) => {
+  const result = await ao.dryrun({
+    process: CONTRACT_ID,
+    tags: [
+      { name: "Action", value: "Balances" },
+      { name: "Target", value: walletAddress }
+    ]
+  })
+  
+  return JSON.parse(result.Messages[0].Data)
+}
+
+// Get specific token details
+const getTokenInfo = async (tokenId) => {
+  const result = await ao.dryrun({
+    process: CONTRACT_ID,
+    tags: [
+      { name: "Action", value: "Token-Info" },
+      { name: "TokenId", value: tokenId }
+    ]
+  })
+  
+  return JSON.parse(result.Messages[0].Data)
+}
+```
+
+### ANS-110 Compliance Checklist
+
+✅ **Required Fields**: Name, Ticker, Logo, Denomination
+✅ **Balance Tracking**: Proper balance management for NFTs
+✅ **Transfer Function**: Standard transfer with debit/credit notices
+✅ **Info Handlers**: Balance, Balances, Info handlers implemented
+✅ **Event Notifications**: Proper credit/debit notices
+✅ **Token Registry**: Centralized token information storage
+✅ **Transfer Records**: Complete transfer history tracking
+
+This implementation ensures full ANS-110 compliance while maintaining all the platform-specific functionality for content monetization, access control, and revenue distribution.

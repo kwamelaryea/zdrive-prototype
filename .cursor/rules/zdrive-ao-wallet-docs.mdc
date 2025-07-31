@@ -1,0 +1,455 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Arweave Wallet Integration Guide
+
+## Overview
+
+This guide covers integrating multiple Arweave wallets into your dApp, including Wander (formerly ArConnect), Othent, and other popular wallets in the Arweave ecosystem. These wallets are essential for interacting with AO (the computer), Hyperbeam, and the broader Arweave network.
+
+## Supported Wallets
+
+### 1. Wander Wallet (formerly ArConnect)
+- **Type**: Browser extension
+- **Features**: Native Arweave support, AO integration, transaction signing
+- **Detection**: `window.arweaveWallet`
+
+### 2. Othent
+- **Type**: Social login wallet
+- **Features**: Web2-style authentication, email/social login, gasless transactions
+- **Detection**: Othent SDK integration
+
+### 3. Arweave.app
+- **Type**: Web wallet
+- **Features**: Browser-based, no extension required
+
+## Installation & Setup
+
+### Dependencies
+
+```bash
+npm install arweave @othent/kms arconnect
+```
+
+### Basic Wallet Detection
+
+```javascript
+// Wallet detection utility
+class ArweaveWalletManager {
+  constructor() {
+    this.supportedWallets = {
+      wander: 'arweaveWallet',
+      othent: 'othent',
+      arweaveApp: 'arweaveApp'
+    };
+  }
+
+  async detectWallets() {
+    const detected = {};
+    
+    // Check for Wander (ArConnect)
+    if (typeof window !== 'undefined' && window.arweaveWallet) {
+      detected.wander = {
+        name: 'Wander',
+        available: true,
+        instance: window.arweaveWallet
+      };
+    }
+
+    // Check for Othent
+    try {
+      const { Othent } = await import('@othent/kms');
+      detected.othent = {
+        name: 'Othent',
+        available: true,
+        instance: new Othent({ appInfo: { name: 'Your dApp' } })
+      };
+    } catch (error) {
+      detected.othent = { name: 'Othent', available: false };
+    }
+
+    return detected;
+  }
+}
+```
+
+## Wallet Connection Implementation
+
+### Universal Connection Handler
+
+```javascript
+class WalletConnector {
+  constructor() {
+    this.walletManager = new ArweaveWalletManager();
+    this.activeWallet = null;
+    this.address = null;
+  }
+
+  async connect(walletType) {
+    switch (walletType) {
+      case 'wander':
+        return await this.connectWander();
+      case 'othent':
+        return await this.connectOthent();
+      default:
+        throw new Error(`Unsupported wallet type: ${walletType}`);
+    }
+  }
+
+  async connectWander() {
+    try {
+      if (!window.arweaveWallet) {
+        throw new Error('Wander wallet not detected');
+      }
+
+      // Request permissions
+      await window.arweaveWallet.connect([
+        'ACCESS_ADDRESS',
+        'ACCESS_PUBLIC_KEY',
+        'SIGN_TRANSACTION',
+        'DISPATCH'
+      ]);
+
+      const address = await window.arweaveWallet.getActiveAddress();
+      
+      this.activeWallet = {
+        type: 'wander',
+        instance: window.arweaveWallet,
+        address: address
+      };
+
+      return { success: true, address, wallet: 'wander' };
+    } catch (error) {
+      throw new Error(`Wander connection failed: ${error.message}`);
+    }
+  }
+
+  async connectOthent() {
+    try {
+      const { Othent } = await import('@othent/kms');
+      const othent = new Othent({
+        appInfo: {
+          name: 'Your dApp Name',
+          version: '1.0.0',
+          env: 'production' // or 'development'
+        }
+      });
+
+      const authData = await othent.logIn();
+      
+      this.activeWallet = {
+        type: 'othent',
+        instance: othent,
+        address: authData.walletAddress
+      };
+
+      return { 
+        success: true, 
+        address: authData.walletAddress, 
+        wallet: 'othent',
+        user: authData 
+      };
+    } catch (error) {
+      throw new Error(`Othent connection failed: ${error.message}`);
+    }
+  }
+
+  async disconnect() {
+    if (this.activeWallet?.type === 'wander') {
+      await window.arweaveWallet.disconnect();
+    } else if (this.activeWallet?.type === 'othent') {
+      await this.activeWallet.instance.logOut();
+    }
+    
+    this.activeWallet = null;
+    this.address = null;
+  }
+}
+```
+
+## Transaction Signing
+
+### Universal Transaction Handler
+
+```javascript
+class TransactionHandler {
+  constructor(walletConnector) {
+    this.wallet = walletConnector;
+  }
+
+  async signTransaction(transaction) {
+    if (!this.wallet.activeWallet) {
+      throw new Error('No wallet connected');
+    }
+
+    switch (this.wallet.activeWallet.type) {
+      case 'wander':
+        return await this.signWithWander(transaction);
+      case 'othent':
+        return await this.signWithOthent(transaction);
+      default:
+        throw new Error('Unsupported wallet type');
+    }
+  }
+
+  async signWithWander(transaction) {
+    try {
+      const signedTx = await window.arweaveWallet.sign(transaction);
+      return signedTx;
+    } catch (error) {
+      throw new Error(`Wander signing failed: ${error.message}`);
+    }
+  }
+
+  async signWithOthent(transaction) {
+    try {
+      const signedTx = await this.wallet.activeWallet.instance.sign(transaction);
+      return signedTx;
+    } catch (error) {
+      throw new Error(`Othent signing failed: ${error.message}`);
+    }
+  }
+}
+```
+
+## AO Integration
+
+### AO Process Interaction
+
+```javascript
+class AOIntegration {
+  constructor(walletConnector) {
+    this.wallet = walletConnector;
+  }
+
+  async sendMessage(processId, data, tags = []) {
+    if (!this.wallet.activeWallet) {
+      throw new Error('No wallet connected');
+    }
+
+    const message = {
+      process: processId,
+      data: JSON.stringify(data),
+      tags: [
+        { name: 'Action', value: 'YourAction' },
+        { name: 'Data-Protocol', value: 'ao' },
+        { name: 'Type', value: 'Message' },
+        { name: 'Variant', value: 'ao.TN.1' },
+        ...tags
+      ]
+    };
+
+    switch (this.wallet.activeWallet.type) {
+      case 'wander':
+        return await this.sendWithWander(message);
+      case 'othent':
+        return await this.sendWithOthent(message);
+      default:
+        throw new Error('Unsupported wallet for AO');
+    }
+  }
+
+  async sendWithWander(message) {
+    try {
+      const result = await window.arweaveWallet.dispatch(message);
+      return result;
+    } catch (error) {
+      throw new Error(`AO message failed (Wander): ${error.message}`);
+    }
+  }
+
+  async sendWithOthent(message) {
+    try {
+      const result = await this.wallet.activeWallet.instance.send(message);
+      return result;
+    } catch (error) {
+      throw new Error(`AO message failed (Othent): ${error.message}`);
+    }
+  }
+}
+```
+
+## React Integration Example
+
+```javascript
+import React, { useState, useEffect } from 'react';
+
+const WalletProvider = ({ children }) => {
+  const [walletConnector] = useState(new WalletConnector());
+  const [transactionHandler] = useState(new TransactionHandler(walletConnector));
+  const [aoIntegration] = useState(new AOIntegration(walletConnector));
+  const [isConnected, setIsConnected] = useState(false);
+  const [address, setAddress] = useState(null);
+  const [availableWallets, setAvailableWallets] = useState({});
+
+  useEffect(() => {
+    const detectWallets = async () => {
+      const detected = await walletConnector.walletManager.detectWallets();
+      setAvailableWallets(detected);
+    };
+    
+    detectWallets();
+  }, []);
+
+  const connectWallet = async (walletType) => {
+    try {
+      const result = await walletConnector.connect(walletType);
+      setIsConnected(true);
+      setAddress(result.address);
+      return result;
+    } catch (error) {
+      console.error('Wallet connection failed:', error);
+      throw error;
+    }
+  };
+
+  const disconnectWallet = async () => {
+    await walletConnector.disconnect();
+    setIsConnected(false);
+    setAddress(null);
+  };
+
+  return (
+    <WalletContext.Provider value={{
+      connectWallet,
+      disconnectWallet,
+      isConnected,
+      address,
+      availableWallets,
+      transactionHandler,
+      aoIntegration
+    }}>
+      {children}
+    </WalletContext.Provider>
+  );
+};
+```
+
+## Best Practices
+
+### 1. Error Handling
+```javascript
+const handleWalletOperation = async (operation) => {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error.message.includes('User rejected')) {
+      // Handle user rejection
+      console.log('User cancelled operation');
+    } else if (error.message.includes('Insufficient funds')) {
+      // Handle insufficient balance
+      console.error('Insufficient AR balance');
+    } else {
+      // Handle other errors
+      console.error('Wallet operation failed:', error);
+    }
+    throw error;
+  }
+};
+```
+
+### 2. Wallet State Management
+```javascript
+// Store wallet preference
+const saveWalletPreference = (walletType) => {
+  localStorage.setItem('preferred_wallet', walletType);
+};
+
+// Auto-connect to preferred wallet
+const autoConnect = async () => {
+  const preferred = localStorage.getItem('preferred_wallet');
+  if (preferred && availableWallets[preferred]?.available) {
+    try {
+      await connectWallet(preferred);
+    } catch (error) {
+      console.log('Auto-connect failed:', error);
+    }
+  }
+};
+```
+
+### 3. Permission Management
+```javascript
+// Request specific permissions for Wander
+const requestWanderPermissions = async () => {
+  const permissions = [
+    'ACCESS_ADDRESS',
+    'ACCESS_PUBLIC_KEY',
+    'SIGN_TRANSACTION',
+    'DISPATCH', // Required for AO
+    'ACCESS_ARWEAVE_CONFIG'
+  ];
+  
+  await window.arweaveWallet.connect(permissions);
+};
+```
+
+## Testing
+
+### Unit Tests
+```javascript
+describe('Wallet Integration', () => {
+  let walletConnector;
+
+  beforeEach(() => {
+    walletConnector = new WalletConnector();
+  });
+
+  test('should detect available wallets', async () => {
+    const wallets = await walletConnector.walletManager.detectWallets();
+    expect(wallets).toBeDefined();
+  });
+
+  test('should connect to Wander wallet', async () => {
+    // Mock window.arweaveWallet
+    global.window.arweaveWallet = {
+      connect: jest.fn(),
+      getActiveAddress: jest.fn().mockResolvedValue('test-address')
+    };
+
+    const result = await walletConnector.connectWander();
+    expect(result.success).toBe(true);
+    expect(result.address).toBe('test-address');
+  });
+});
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Wallet Not Detected**
+   - Ensure the wallet extension is installed and enabled
+   - Check for popup blockers
+   - Verify the wallet is unlocked
+
+2. **Transaction Failures**
+   - Check AR balance for gas fees
+   - Verify transaction structure
+   - Ensure proper permissions are granted
+
+3. **AO Integration Issues**
+   - Verify process ID is correct
+   - Check message format and tags
+   - Ensure wallet supports AO dispatch
+
+### Debug Mode
+```javascript
+const DEBUG = process.env.NODE_ENV === 'development';
+
+if (DEBUG) {
+  window.walletDebug = {
+    walletConnector,
+    transactionHandler,
+    aoIntegration
+  };
+}
+```
+
+## Conclusion
+
+This implementation provides a robust foundation for multi-wallet support in your Arweave dApp. The modular approach allows for easy extension to support additional wallets as they emerge in the ecosystem.
+
+Remember to test thoroughly across different wallet types and handle edge cases gracefully to provide the best user experience.

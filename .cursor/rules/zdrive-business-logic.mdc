@@ -1,0 +1,216 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Video Streaming Platform Technical Specification
+**AO/Arweave NFT-Based Pay-Per-View System**
+
+## Architecture Overview
+
+### Core Components
+- **AO Process**: Smart contract handling payments, NFT creation, and access control
+- **Arweave Storage**: Permanent video and metadata storage
+- **Frontend**: React/Next.js with ArConnect/Wander wallet integration
+- **NFT System**: Creator and User tokens with transfer/royalty mechanics
+
+## Smart Contract Design (AO Process)
+
+### Data Structures
+```lua
+-- Process State
+Balances = {} -- User token balances
+Videos = {} -- Video metadata and pricing
+CreatorTokens = {} -- Creator NFT ownership mapping
+UserTokens = {} -- User access NFT ownership
+Revenue = {} -- Revenue distribution tracking
+```
+
+### Core Functions
+
+#### Video Upload & Creator NFT Creation
+```lua
+-- Handler: "Upload-Video"
+-- Creates video entry and mints Creator NFT
+-- Charges 1% upload fee
+-- Parameters: video_id, title, description, price, thumbnail_tx
+```
+
+#### User Purchase & Access NFT Creation
+```lua
+-- Handler: "Purchase-Access"
+-- Processes payment, creates User NFT, distributes revenue
+-- 90% to creator token holder, 10% platform fee
+-- Parameters: video_id, payment_amount
+```
+
+#### NFT Transfer with Royalties
+```lua
+-- Handler: "Transfer-NFT"
+-- Handles Creator/User NFT transfers
+-- 10% royalty to original creator on User NFT resales
+-- Parameters: token_id, recipient, sale_price
+```
+
+## Frontend Integration
+
+### Wallet Connection
+```javascript
+// ArConnect/Wander integration
+const connectWallet = async () => {
+  if (window.arweaveWallet) {
+    await window.arweaveWallet.connect(['ACCESS_ADDRESS', 'SIGN_TRANSACTION']);
+  }
+};
+```
+
+### Video Upload Flow
+```javascript
+// 1. Upload video to Arweave
+const uploadVideo = async (videoFile, metadata) => {
+  const tx = await arweave.createTransaction({ data: videoFile });
+  await arweave.transactions.sign(tx);
+  
+  // 2. Create AO process entry
+  await message({
+    process: PROCESS_ID,
+    tags: [
+      { name: "Action", value: "Upload-Video" },
+      { name: "Video-TX", value: tx.id },
+      { name: "Price", value: metadata.price }
+    ]
+  });
+};
+```
+
+### Purchase & Access Flow
+```javascript
+// Purchase access and mint User NFT
+const purchaseAccess = async (videoId, price) => {
+  await message({
+    process: PROCESS_ID,
+    tags: [
+      { name: "Action", value: "Purchase-Access" },
+      { name: "Video-ID", value: videoId },
+      { name: "Payment", value: price }
+    ]
+  });
+};
+```
+
+## NFT Token Standards
+
+### Creator NFT Properties
+```json
+{
+  "name": "Creator Token - [Video Title]",
+  "description": "Distribution rights for video content",
+  "image": "[thumbnail_tx]",
+  "video_id": "[video_id]",
+  "type": "creator_token",
+  "royalty_percentage": 10
+}
+```
+
+### User NFT Properties
+```json
+{
+  "name": "Access Token - [Video Title]",
+  "description": "Permanent viewing rights",
+  "image": "[thumbnail_tx]",
+  "video_id": "[video_id]",
+  "type": "user_token",
+  "access_level": "full"
+}
+```
+
+## Revenue Distribution Logic
+
+### Upload Fee (1%)
+```lua
+upload_fee = video_price * 0.01
+platform_balance = platform_balance + upload_fee
+```
+
+### Purchase Revenue Split
+```lua
+platform_fee = purchase_amount * 0.10
+creator_revenue = purchase_amount * 0.90
+-- Transfer to current Creator NFT holder
+```
+
+### Resale Royalties
+```lua
+-- On User NFT resale
+original_creator_royalty = sale_price * 0.10
+seller_revenue = sale_price * 0.90
+```
+
+## Database Schema (AO Process State)
+
+### Videos Table
+```lua
+Videos[video_id] = {
+  creator_original = "wallet_address",
+  creator_current = "current_nft_holder",
+  title = "string",
+  price = "number",
+  upload_timestamp = "number",
+  arweave_tx = "transaction_id"
+}
+```
+
+### NFT Ownership
+```lua
+CreatorTokens[token_id] = {
+  video_id = "string",
+  owner = "wallet_address",
+  created_at = "timestamp"
+}
+
+UserTokens[token_id] = {
+  video_id = "string",
+  owner = "wallet_address",
+  purchased_at = "timestamp"
+}
+```
+
+## Implementation Checklist
+
+### Phase 1: Core Functionality
+- [ ] AO process deployment with basic handlers
+- [ ] Video upload to Arweave integration
+- [ ] Creator NFT minting on upload
+- [ ] Payment processing and User NFT creation
+- [ ] Basic access control verification
+
+### Phase 2: Advanced Features
+- [ ] NFT transfer handlers with royalty logic
+- [ ] Revenue distribution automation
+- [ ] Wallet collectibles integration
+- [ ] Free content support
+- [ ] Creator dashboard for analytics
+
+### Phase 3: Optimization
+- [ ] Gas optimization for AO processes
+- [ ] Caching layer for video metadata
+- [ ] Batch operations for multiple purchases
+- [ ] Mobile wallet support
+
+## Security Considerations
+
+- Verify wallet signatures for all transactions
+- Implement rate limiting on uploads
+- Validate payment amounts against video prices
+- Ensure NFT ownership verification before transfers
+- Protect against replay attacks with nonces
+
+## Testing Strategy
+
+1. **Unit Tests**: Individual AO handlers
+2. **Integration Tests**: Full purchase/access flow
+3. **NFT Tests**: Transfer and royalty calculations
+4. **Frontend Tests**: Wallet integration and UI flows
+5. **Load Tests**: Multiple concurrent purchases
+
+This specification provides a complete technical roadmap for implementing your NFT-based video streaming platform with automated revenue distribution and permanent content access rights.
